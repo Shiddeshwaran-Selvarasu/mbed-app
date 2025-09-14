@@ -1,17 +1,59 @@
 {
   "configurations": [
     {
-      "name": "linux-gcc-x64",
+      "name": "Bootloader (STM32H755xx)",
       "includePath": [
-        "${workspaceFolder}/**",
-        "${workspaceFolder}/Driver/**/*"
+        "${workspaceFolder}/Bootloader/Core/Inc",
+        "${workspaceFolder}/Bootloader/Common/Inc",
+        "${workspaceFolder}/Bootloader/Drivers/STM32H7xx_HAL_Driver/Inc",
+        "${workspaceFolder}/Bootloader/Drivers/CMSIS/Include",
+        "${workspaceFolder}/Bootloader/Drivers/CMSIS/Device/ST",
+        "${workspaceFolder}/Bootloader/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+        "${workspaceFolder}/Bootloader/**"
       ],
-      "compilerPath": "/usr/bin/gcc",
-      "cStandard": "${default}",
-      "cppStandard": "${default}",
-      "intelliSenseMode": "linux-gcc-x64",
+      "defines": [
+        "USE_HAL_DRIVER",
+        "STM32H755xx",
+        "CORE_CM7",
+        "BOOTLOADER"
+      ],
+      "compilerPath": "/usr/bin/arm-none-eabi-gcc",
+      "cStandard": "c99",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "linux-gcc-arm",
       "compilerArgs": [
-        ""
+        "-mcpu=cortex-m7",
+        "-mthumb",
+        "-ffunction-sections",
+        "-fdata-sections"
+      ]
+    },
+    {
+      "name": "Application (STM32H755xx)",
+      "includePath": [
+        "${workspaceFolder}/App/Core/Inc",
+        "${workspaceFolder}/App/Common/Inc",
+        "${workspaceFolder}/App/Drivers/STM32H7xx_HAL_Driver/Inc",
+        "${workspaceFolder}/App/Drivers/CMSIS/Include",
+        "${workspaceFolder}/App/Drivers/CMSIS/Device/ST",
+        "${workspaceFolder}/App/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+        "${workspaceFolder}/App/**"
+      ],
+      "defines": [
+        "USE_HAL_DRIVER",
+        "STM32H755xx",
+        "CORE_CM7",
+        "APPLICATION"
+      ],
+      "compilerPath": "/usr/bin/arm-none-eabi-gcc",
+      "cStandard": "c99",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "linux-gcc-arm",
+      "compilerArgs": [
+        "-mcpu=cortex-m7",
+        "-mthumb",
+        "-ffunction-sections",
+        "-fdata-sections"
       ]
     }
   ],
