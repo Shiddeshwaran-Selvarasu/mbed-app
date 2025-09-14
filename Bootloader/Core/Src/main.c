@@ -2,6 +2,7 @@
 #include "logger.h"
 #include "stdio.h"
 
+/* Bootloader Version Info start */
 #define Major_VERSION  1
 #define Minor_VERSION  0
 #define Patch_VERSION  0
@@ -10,13 +11,24 @@
 #define _STRINGIFY(x) __STRINGIFY(x)
 #define BL_VERSION   "v"_STRINGIFY(Major_VERSION)"."_STRINGIFY(Minor_VERSION)"."_STRINGIFY(Patch_VERSION)
 #define BL_VER_STRING "Bootloader Version " BL_VERSION " stable release"
+/* Bootloader Version Info end */
 
+#define APPLICATION_ADDRESS     (uint32_t)0x08040000U
+
+UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 void SystemClock_Config(void);
+
 static void MX_GPIO_Init(void);
+static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 
+static void MX_GPIO_DeInit(void);
+static void MX_USART2_UART_DeInit(void);
+static void MX_USART3_UART_DeInit(void);
+
+static void goto_application( void );
 
 /**
   * @brief  The Bootloader entry point.
@@ -30,9 +42,31 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_USART2_UART_Init();
   MX_USART3_UART_Init();
 
   LOG_INFO("%s\r\n", BL_VER_STRING);
+
+  GPIO_PinState ota_pin_state;
+  __uint32_t timeout = HAL_GetTick() + 5000; // 5 seconds timeout
+
+  LOG_INFO("Press the USER Button to switch to Download Mode...\r\n");
+
+  do {
+    ota_pin_state = HAL_GPIO_ReadPin(OTA_BTN_GPIO_Port, OTA_BTN_Pin);
+
+    if (ota_pin_state == GPIO_PIN_SET || HAL_GetTick() > timeout) {
+      break;
+    }
+  } while (1);
+
+  if (ota_pin_state == GPIO_PIN_SET) {
+    LOG_INFO("OTA Button Pressed. Entering OTA Mode...\r\n");
+    // TODO: Add OTA update logic here....
+  } else {
+    LOG_INFO("Loading application...\r\n");
+    goto_application();
+  }
 
   while (1)
   {
@@ -40,7 +74,29 @@ int main(void)
     HAL_Delay(5000);
     LOG_DEBUG("LED BLINKING....\r\n");
   }
-  
+}
+
+static void goto_application( void )
+{
+  /* Reset the peripherals */
+  MX_USART2_UART_DeInit();
+  MX_USART3_UART_DeInit();
+  MX_GPIO_DeInit();
+
+  typedef void (*pFunction)(void);
+  __uint32_t jump_address = *(__IO __uint32_t*) (APPLICATION_ADDRESS + 4U);
+  pFunction jump_to_application = (pFunction) jump_address;
+
+  /* Initialize user application's Stack Pointer */
+  __set_MSP(*(__IO uint32_t*) APPLICATION_ADDRESS);
+
+  /* Reset the Clock */
+  HAL_RCC_DeInit();
+  HAL_DeInit();
+  SysTick->LOAD = 0;
+  SysTick->VAL = 0;
+
+  jump_to_application();
 }
 
 /**
@@ -98,6 +154,44 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+  /* USART2 Port Clock Enable */
+  __HAL_RCC_USART2_CLK_ENABLE();
+
+  huart2.Instance = USART2;
+  
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK) Error_Handler();
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK) Error_Handler();
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK) Error_Handler();
+  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK) Error_Handler();
+}
+
+/**
+  * @brief USART2 Deinitialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_DeInit(void)
+{
+  if (HAL_UART_DeInit(&huart2) != HAL_OK) Error_Handler();
+  __HAL_RCC_USART2_CLK_DISABLE();
+}
+
+/**
   * @brief USART3 Initialization Function
   * @param None
   * @retval None
@@ -127,6 +221,17 @@ static void MX_USART3_UART_Init(void)
 }
 
 /**
+  * @brief USART3 Deinitialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_DeInit(void)
+{
+  if (HAL_UART_DeInit(&huart3) != HAL_OK) Error_Handler();
+  __HAL_RCC_USART3_CLK_DISABLE();
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -136,11 +241,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : OTA_BTN_Pin */
+  GPIO_InitStruct.Pin = OTA_BTN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(OTA_BTN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LED1_Pin */
   GPIO_InitStruct.Pin = LED1_Pin;
@@ -148,19 +261,27 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED1_GPIO_Port, &GPIO_InitStruct);
-
-  /* Configure GPIO pins for USART3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-
-  /* Set the Alternate Function to AF7 for USART3 (standard H7 mapping) */
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
-  
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 }
 
+/**
+  * @brief GPIO Deinitialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_DeInit(void)
+{
+  /* GPIO Ports Clock Disable */
+  __HAL_RCC_GPIOA_CLK_DISABLE();
+  __HAL_RCC_GPIOB_CLK_DISABLE();
+  __HAL_RCC_GPIOC_CLK_DISABLE();
+  __HAL_RCC_GPIOD_CLK_DISABLE();
+
+  /* Deconfigure GPIO pin : OTA_BTN_Pin */
+  HAL_GPIO_DeInit(OTA_BTN_GPIO_Port, OTA_BTN_Pin);
+
+  /* Deconfigure GPIO pins : LED1_Pin */
+  HAL_GPIO_DeInit(LED1_GPIO_Port, LED1_Pin);
+}
 
 #ifdef __GNUC__
 /* With GCC/RAISONANCE, small printf (option LD Linker->Libraries->Small printf

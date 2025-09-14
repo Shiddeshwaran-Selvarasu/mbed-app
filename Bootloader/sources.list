@@ -1,9 +1,10 @@
 Core/Src/main.c
-Core/Src/stm32h7xx_hal_msp.c
-Core/Src/stm32h7xx_it.c
-Core/Src/syscalls.c
-Core/Src/logger.c
 Core/Src/sysmem.c
+Core/Src/syscalls.c
+Core/Src/stm32h7xx_it.c
+Core/Src/system_stm32h7xx.c
+Core/Src/stm32h7xx_hal_msp.c
+Common/Src/logger.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_cortex.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_dma.c
@@ -24,4 +25,3 @@ Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim_ex.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_uart.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_uart_ex.c
-Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates/system_stm32h7xx.c

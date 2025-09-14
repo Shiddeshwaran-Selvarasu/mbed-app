@@ -9,8 +9,25 @@ extern "C" {
 
 void Error_Handler(void);
 
+// user button 
+#define OTA_BTN_Pin GPIO_PIN_13
+#define OTA_BTN_GPIO_Port GPIOC
+
+// onboard LED
 #define LED1_Pin GPIO_PIN_0
 #define LED1_GPIO_Port GPIOB
+
+// USART2 for application OTA upgrade
+#define USART2_TX_Pin GPIO_PIN_2
+#define USART2_TX_GPIO_Port GPIOA
+#define USART2_RX_Pin GPIO_PIN_3
+#define USART2_RX_GPIO_Port GPIOA
+
+// USART3 for logging
+#define USART3_TX_Pin GPIO_PIN_8
+#define USART3_TX_GPIO_Port GPIOD
+#define USART3_RX_Pin GPIO_PIN_9
+#define USART3_RX_GPIO_Port GPIOD
 
 #ifdef __cplusplus
 }

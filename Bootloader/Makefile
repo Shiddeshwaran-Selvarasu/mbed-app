@@ -27,6 +27,7 @@ OBJS = $(addprefix $(OBJ_DIR)/, $(notdir $(C_SRCS:.c=.o))) \
 # Include Paths
 # =====================
 INCLUDES = -ICore/Inc \
+		   -ICommon/Inc \
 		   -IDrivers/STM32H7xx_HAL_Driver/Inc \
 		   -IDrivers/CMSIS/Include \
 		   -IDrivers/CMSIS/Device/ST \
@@ -57,7 +58,7 @@ all: $(BIN)
 # =====================
 # vpath for source files
 # =====================
-vpath %.c Core/Src Drivers/STM32H7xx_HAL_Driver/Src Drivers/CMSIS/Device/ST/STM32H7xx/Source Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates
+vpath %.c Core/Src Common/Src Drivers/STM32H7xx_HAL_Driver/Src Drivers/CMSIS/Device/ST/STM32H7xx/Source Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates
 vpath %.s Core/Startup
 
 # =====================
