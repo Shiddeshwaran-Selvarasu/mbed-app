@@ -57,3 +57,4 @@ dkms.conf
 ## build files
 Bootloader/build
 App/build
+flash_image.bin
