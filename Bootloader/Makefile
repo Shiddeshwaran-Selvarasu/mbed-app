@@ -41,8 +41,8 @@ CFLAGS   = -mcpu=cortex-m7 -mthumb -O2 -g -Wall -ffunction-sections -fdata-secti
 # =====================
 # Output Files
 # =====================
-ELF      = $(BUILD_DIR)/firmware.elf
-BIN      = $(BUILD_DIR)/firmware.bin
+ELF      = $(BUILD_DIR)/bootloader.elf
+BIN      = $(BUILD_DIR)/bootloader.bin
 
 # =====================
 # Linker Flags
@@ -87,6 +87,7 @@ $(ELF): $(OBJS)
 # Convert ELF to BIN
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
+	@truncate -s 131072 $@
 
 # =====================
 # Clean Rule

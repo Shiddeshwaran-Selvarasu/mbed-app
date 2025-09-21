@@ -15,6 +15,7 @@
 
 #define APPLICATION_ADDRESS     (uint32_t)0x08040000U
 
+CRC_HandleTypeDef hcrc;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
@@ -23,10 +24,12 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_CRC_Init(void);
 
 static void MX_GPIO_DeInit(void);
 static void MX_USART2_UART_DeInit(void);
 static void MX_USART3_UART_DeInit(void);
+static void MX_CRC_DeInit(void);
 
 static void goto_application( void );
 
@@ -44,6 +47,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
+  MX_CRC_Init();
 
   LOG_INFO("%s\r\n", BL_VER_STRING);
 
@@ -77,11 +81,37 @@ int main(void)
 }
 
 static void goto_application( void )
-{
+{ 
+  /* Brief delay to ensure UART transmission completes */
+  HAL_Delay(100);
+  
   /* Reset the peripherals */
   MX_USART2_UART_DeInit();
   MX_USART3_UART_DeInit();
+  MX_CRC_DeInit();
   MX_GPIO_DeInit();
+
+  /* Disable all interrupts */
+  __disable_irq();
+  
+  /* Disable SysTick */
+  SysTick->CTRL = 0;
+  SysTick->LOAD = 0;
+  SysTick->VAL = 0;
+
+  /* Reset the Clock */
+  HAL_RCC_DeInit();
+  HAL_DeInit();
+  
+  /* Disable all interrupt lines */
+  for(int i = 0; i < 8; i++) {
+    NVIC->ICER[i] = 0xFFFFFFFF;
+  }
+  
+  /* Clear all pending interrupts */
+  for(int i = 0; i < 8; i++) {
+    NVIC->ICPR[i] = 0xFFFFFFFF;
+  }
 
   typedef void (*pFunction)(void);
   __uint32_t jump_address = *(__IO __uint32_t*) (APPLICATION_ADDRESS + 4U);
@@ -90,11 +120,11 @@ static void goto_application( void )
   /* Initialize user application's Stack Pointer */
   __set_MSP(*(__IO uint32_t*) APPLICATION_ADDRESS);
 
-  /* Reset the Clock */
-  HAL_RCC_DeInit();
-  HAL_DeInit();
-  SysTick->LOAD = 0;
-  SysTick->VAL = 0;
+  /* Set vector table offset to application */
+  SCB->VTOR = APPLICATION_ADDRESS;
+
+  /* Enable interrupts for application */
+  __enable_irq();
 
   jump_to_application();
 }
@@ -229,6 +259,35 @@ static void MX_USART3_UART_DeInit(void)
 {
   if (HAL_UART_DeInit(&huart3) != HAL_OK) Error_Handler();
   __HAL_RCC_USART3_CLK_DISABLE();
+}
+
+/**
+  * @brief CRC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CRC_Init(void)
+{
+  hcrc.Instance = CRC;
+
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_ENABLE;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+  hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_BYTES;
+  
+  if (HAL_CRC_Init(&hcrc) != HAL_OK) Error_Handler();
+}
+
+/**
+  * @brief CRC Deinitialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CRC_DeInit(void)
+{
+  if (HAL_CRC_DeInit(&hcrc) != HAL_OK) Error_Handler();
+  __HAL_RCC_CRC_CLK_DISABLE();
 }
 
 /**
