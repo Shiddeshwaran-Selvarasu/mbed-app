@@ -1,0 +1,33 @@
+{
+  "configurations": [
+    {
+      "name": "Auto-Select Configuration",
+      "includePath": [
+        "${workspaceFolder}/App/Core/Inc",
+        "${workspaceFolder}/Bootloader/Core/Inc", 
+        "${workspaceFolder}/Common/Core/Inc",
+        "${workspaceFolder}/Common/Drivers/STM32H7xx_HAL_Driver/Inc",
+        "${workspaceFolder}/Common/Drivers/CMSIS/Include",
+        "${workspaceFolder}/Common/Drivers/CMSIS/Device/ST",
+        "${workspaceFolder}/Common/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+        "${workspaceFolder}/**"
+      ],
+      "defines": [
+        "USE_HAL_DRIVER",
+        "STM32H755xx",
+        "CORE_CM7"
+      ],
+      "compilerPath": "/usr/bin/arm-none-eabi-gcc",
+      "cStandard": "c99",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "linux-gcc-arm",
+      "compilerArgs": [
+        "-mcpu=cortex-m7",
+        "-mthumb",
+        "-ffunction-sections",
+        "-fdata-sections"
+      ]
+    }
+  ],
+  "version": 4
+}

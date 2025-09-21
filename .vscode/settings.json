@@ -59,5 +59,15 @@
   "C_Cpp_Runner.msvcSecureNoWarnings": false,
   "files.associations": {
     "stm32h7xx_hal.h": "c"
+  },
+  "C_Cpp.default.configurationProvider": "ms-vscode.cpptools",
+  "C_Cpp.autoAddFileAssociations": false,
+  "C_Cpp.intelliSenseEngine": "default",
+  "C_Cpp.enhancedColorization": "enabled",
+  "[cpp]": {
+    "C_Cpp.default.browse.limitSymbolsToIncludedHeaders": true
+  },
+  "[c]": {
+    "C_Cpp.default.browse.limitSymbolsToIncludedHeaders": true
   }
 }
