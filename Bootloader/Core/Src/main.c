@@ -374,10 +374,7 @@ static void MX_USART3_UART_DeInit(void)
   * @retval None
   */
 static void MX_CRC_Init(void)
-{
-  /* Enable CRC clock */
-  __HAL_RCC_CRC_CLK_ENABLE();
-  
+{  
   hcrc.Instance = CRC;
 
   hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
