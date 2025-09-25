@@ -68,6 +68,20 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 }
 
 /**
+  * @brief  Initializes the CRC MSP.
+  * @param  hcrc CRC handle
+  * @retval None
+  */
+void HAL_CRC_MspInit(CRC_HandleTypeDef *hcrc)
+{
+  if(hcrc->Instance==CRC)
+  {
+    /* Peripheral clock enable */
+    __HAL_RCC_CRC_CLK_ENABLE();
+  }
+}
+
+/**
   * @brief UART MSP De-Initialization
   * This function freeze the hardware resources used in this example
   * @param huart: UART handle pointer
@@ -98,4 +112,18 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
     HAL_GPIO_DeInit(GPIOD, USART3_TX_Pin|USART3_RX_Pin);
   }
 
+}
+
+/**
+  * @brief  DeInitialize the CRC MSP.
+  * @param  hcrc CRC handle
+  * @retval None
+  */
+__weak void HAL_CRC_MspDeInit(CRC_HandleTypeDef *hcrc)
+{
+    if(hcrc->Instance==CRC)
+  {
+    /* Peripheral clock disable */
+    __HAL_RCC_CRC_CLK_DISABLE();
+  }
 }

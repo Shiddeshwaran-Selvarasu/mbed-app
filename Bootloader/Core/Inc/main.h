@@ -16,6 +16,10 @@ void Error_Handler(void);
 // onboard LED
 #define LED1_Pin GPIO_PIN_0
 #define LED1_GPIO_Port GPIOB
+#define LED2_Pin GPIO_PIN_1
+#define LED2_GPIO_Port GPIOE
+#define LED3_Pin GPIO_PIN_14
+#define LED3_GPIO_Port GPIOB
 
 // USART2 for application OTA upgrade
 #define USART2_TX_Pin GPIO_PIN_2

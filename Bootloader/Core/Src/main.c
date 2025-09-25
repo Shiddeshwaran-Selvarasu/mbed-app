@@ -14,6 +14,8 @@
 /* Bootloader Version Info end */
 
 #define APPLICATION_ADDRESS     (uint32_t)0x08040000U
+#define APPLICATION_MAX_SIZE   (128 * 1024)  // 128 KB
+#define APPLICATION_CRC_ADDRESS (APPLICATION_ADDRESS + APPLICATION_MAX_SIZE - 4)
 
 CRC_HandleTypeDef hcrc;
 UART_HandleTypeDef huart2;
@@ -32,6 +34,8 @@ static void MX_USART3_UART_DeInit(void);
 static void MX_CRC_DeInit(void);
 
 static void goto_application( void );
+static __uint32_t get_application_crc( void );
+static __uint32_t verify_application_crc(__uint32_t crc_value);
 
 /**
   * @brief  The Bootloader entry point.
@@ -53,6 +57,18 @@ int main(void)
 
   GPIO_PinState ota_pin_state;
   __uint32_t timeout = HAL_GetTick() + 5000; // 5 seconds timeout
+  /**
+   * crc_check_status values: 
+   * 1 - Failed
+   * 0 - Unknown (not checked yet)
+   * 
+   * In total 8 bits(rrrrrcoa) (crc status + ota status + app jump status + reserved):
+   * c - crc_check_status
+   * o - ota_mode_status 
+   * a - app_jump_status
+   * r - reserved for future use
+   */
+  __uint8_t application_boot_status = 0;
 
   LOG_INFO("Press the USER Button to switch to Download Mode...\r\n");
 
@@ -67,19 +83,59 @@ int main(void)
   if (ota_pin_state == GPIO_PIN_SET) {
     LOG_INFO("OTA Button Pressed. Entering OTA Mode...\r\n");
     // TODO: Add OTA update logic here....
+    if (0) {
+      // OTA successful
+      // TODO: add reboot logic here....
+    } else {
+      // OTA failed
+      application_boot_status |= 0x02; // Set ota_mode_status to 1 (failed)
+      LOG_ERROR("OTA Update failed. Staying in Bootloader mode...\r\n");
+    }
   } else {
-    LOG_INFO("Loading application...\r\n");
-    goto_application();
+    LOG_INFO("Checking for valid application...\r\n");
+    __uint32_t app_crc = get_application_crc();
+    if (app_crc < 0) {
+      LOG_ERROR("Failed to get application CRC. Error code: %d\r\n", app_crc);
+      LOG_INFO("Staying in Bootloader mode...\r\n");
+    } else {
+      LOG_INFO("Application CRC: 0x%08X\r\n", app_crc);
+      LOG_INFO("Verifying application CRC...\r\n");
+      int verify_status = verify_application_crc((__uint32_t)app_crc);
+      if (verify_status == 0) {
+        LOG_INFO("Application CRC verified successfully.\r\n");
+        LOG_INFO("Loading application...\r\n");
+        goto_application();
+        application_boot_status |= 0x01; // Set app_jump_status to 1 (failed)
+      } else {
+        application_boot_status |= 0x04; // Set crc_check_status to 1 (failed)
+        LOG_ERROR("Application CRC verification failed. Error code: %d\r\n", verify_status);
+        LOG_INFO("Staying in Bootloader mode...\r\n");
+      }
+    }
   }
+
+  // Indicate boot status code in logs
+  if (application_boot_status != 0) LOG_INFO("Boot Status: 0x%02X\r\n", application_boot_status);
 
   while (1)
   {
-    HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-    HAL_Delay(5000);
-    LOG_DEBUG("LED BLINKING....\r\n");
+    if (application_boot_status & 0x01) HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin); // Application jump failed
+    if (application_boot_status & 0x02) HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin); // OTA mode failed
+    if (application_boot_status & 0x04) HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin); // CRC check failed
+
+    HAL_Delay(2500);
   }
 }
 
+/*************************************************************
+ * Application Verification and Jump functions
+ *************************************************************/
+
+/**
+ * @brief  Jump to user application
+ * @param  None
+ * @retval None
+ */
 static void goto_application( void )
 { 
   /* Brief delay to ensure UART transmission completes */
@@ -128,6 +184,57 @@ static void goto_application( void )
 
   jump_to_application();
 }
+
+/**
+ * @brief  Get the stored CRC value from application data
+ * @param  None
+ * @retval CRC value (32-bit integer) or negative values on error
+ */
+static __uint32_t get_application_crc( void )
+{
+  __uint32_t *app_crc_address = (__uint32_t *)APPLICATION_CRC_ADDRESS;
+
+  if (app_crc_address == NULL) {
+    return -1; // Invalid address
+  }
+
+  if (*app_crc_address == 0xFFFFFFFF || *app_crc_address == 0x00000000) {
+    return -2; // Invalid CRC value
+  }
+
+  return *app_crc_address;
+}
+
+/**
+ * @brief  Verify the application CRC against computed CRC
+ * @param  crc_value: The expected CRC value to compare against
+ * @retval 0 if CRC matches, negative values on error
+ */
+static __uint32_t verify_application_crc(__uint32_t crc_value)
+{
+  if (crc_value == 0xFFFFFFFF || crc_value == 0x00000000) {
+    return -2; // Invalid CRC value
+  }
+
+  // Calculate CRC over application data using STM32 hardware CRC peripheral
+  // Data: 131068 bytes (128KB - 4 bytes for CRC storage) = 32767 words exactly
+  uint32_t data_size_bytes = APPLICATION_MAX_SIZE - 4;  // 131068 bytes
+  uint32_t data_size_words = data_size_bytes / 4;       // 32767 words
+  
+  // Use word-based processing with half-word inversion enabled
+  __uint32_t computed_crc = HAL_CRC_Calculate(&hcrc, (uint32_t *)APPLICATION_ADDRESS, data_size_bytes);
+
+  if (computed_crc != crc_value) {
+    LOG_ERROR("Computed CRC: 0x%08X, Expected CRC: 0x%08X\r\n", computed_crc, crc_value);
+    return -3; // CRC mismatch
+  }
+
+  return 0; // CRC matches
+}
+
+/***********************************************************
+ * Peripheral initialization and Deinitialization functions
+ ***********************************************************/
 
 /**
   * @brief System Clock Configuration
@@ -268,6 +375,9 @@ static void MX_USART3_UART_DeInit(void)
   */
 static void MX_CRC_Init(void)
 {
+  /* Enable CRC clock */
+  __HAL_RCC_CRC_CLK_ENABLE();
+  
   hcrc.Instance = CRC;
 
   hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
@@ -304,6 +414,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
@@ -314,12 +425,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(OTA_BTN_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED1_Pin */
-  GPIO_InitStruct.Pin = LED1_Pin;
+  /*Configure GPIO pins : LED1_Pin and LED3_Pin */
+  GPIO_InitStruct.Pin = LED1_Pin | LED3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED1_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : LED2_Pin */
+  GPIO_InitStruct.Pin = LED2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LED2_GPIO_Port, &GPIO_InitStruct);
 }
 
 /**
@@ -334,13 +452,21 @@ static void MX_GPIO_DeInit(void)
   __HAL_RCC_GPIOB_CLK_DISABLE();
   __HAL_RCC_GPIOC_CLK_DISABLE();
   __HAL_RCC_GPIOD_CLK_DISABLE();
+  __HAL_RCC_GPIOE_CLK_DISABLE();
 
   /* Deconfigure GPIO pin : OTA_BTN_Pin */
   HAL_GPIO_DeInit(OTA_BTN_GPIO_Port, OTA_BTN_Pin);
 
   /* Deconfigure GPIO pins : LED1_Pin */
-  HAL_GPIO_DeInit(LED1_GPIO_Port, LED1_Pin);
+  HAL_GPIO_DeInit(LED1_GPIO_Port, LED1_Pin | LED3_Pin);
+
+  /* Deconfigure GPIO pin : LED2_Pin */
+  HAL_GPIO_DeInit(LED2_GPIO_Port, LED2_Pin);
 }
+
+/************************************************************* 
+* Retargets the C library printf function to the USART.
+**************************************************************/
 
 #ifdef __GNUC__
 /* With GCC/RAISONANCE, small printf (option LD Linker->Libraries->Small printf
@@ -353,6 +479,10 @@ int fputc(int ch, FILE *f)
   HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
   return ch;
 }
+
+/***************************************************************
+*                   Error Handler
+****************************************************************/
 
 /**
   * @brief  This function is executed in case of error occurrence.
