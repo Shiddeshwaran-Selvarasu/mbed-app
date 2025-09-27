@@ -34,8 +34,8 @@ static void MX_USART3_UART_DeInit(void);
 static void MX_CRC_DeInit(void);
 
 static void goto_application( void );
-static __uint32_t get_application_crc( void );
-static __uint32_t verify_application_crc(__uint32_t crc_value);
+static uint32_t get_application_crc( void );
+static uint32_t verify_application_crc(uint32_t crc_value);
 
 /**
   * @brief  The Bootloader entry point.
@@ -56,7 +56,7 @@ int main(void)
   LOG_INFO("%s\r\n", BL_VER_STRING);
 
   GPIO_PinState ota_pin_state;
-  __uint32_t timeout = HAL_GetTick() + 5000; // 5 seconds timeout
+  uint32_t timeout = HAL_GetTick() + 5000; // 5 seconds timeout
   /**
    * crc_check_status values: 
    * 1 - Failed
@@ -68,7 +68,7 @@ int main(void)
    * a - app_jump_status
    * r - reserved for future use
    */
-  __uint8_t application_boot_status = 0;
+  uint8_t application_boot_status = 0;
 
   LOG_INFO("Press the USER Button to switch to Download Mode...\r\n");
 
@@ -93,14 +93,14 @@ int main(void)
     }
   } else {
     LOG_INFO("Checking for valid application...\r\n");
-    __uint32_t app_crc = get_application_crc();
+    uint32_t app_crc = get_application_crc();
     if (app_crc < 0) {
       LOG_ERROR("Failed to get application CRC. Error code: %d\r\n", app_crc);
       LOG_INFO("Staying in Bootloader mode...\r\n");
     } else {
       LOG_INFO("Application CRC: 0x%08X\r\n", app_crc);
       LOG_INFO("Verifying application CRC...\r\n");
-      int verify_status = verify_application_crc((__uint32_t)app_crc);
+      int verify_status = verify_application_crc((uint32_t)app_crc);
       if (verify_status == 0) {
         LOG_INFO("Application CRC verified successfully.\r\n");
         LOG_INFO("Loading application...\r\n");
@@ -170,7 +170,7 @@ static void goto_application( void )
   }
 
   typedef void (*pFunction)(void);
-  __uint32_t jump_address = *(__IO __uint32_t*) (APPLICATION_ADDRESS + 4U);
+  uint32_t jump_address = *(__IO uint32_t*) (APPLICATION_ADDRESS + 4U);
   pFunction jump_to_application = (pFunction) jump_address;
 
   /* Initialize user application's Stack Pointer */
@@ -190,9 +190,9 @@ static void goto_application( void )
  * @param  None
  * @retval CRC value (32-bit integer) or negative values on error
  */
-static __uint32_t get_application_crc( void )
+static uint32_t get_application_crc( void )
 {
-  __uint32_t *app_crc_address = (__uint32_t *)APPLICATION_CRC_ADDRESS;
+  uint32_t *app_crc_address = (uint32_t *)APPLICATION_CRC_ADDRESS;
 
   if (app_crc_address == NULL) {
     return -1; // Invalid address
@@ -210,7 +210,7 @@ static __uint32_t get_application_crc( void )
  * @param  crc_value: The expected CRC value to compare against
  * @retval 0 if CRC matches, negative values on error
  */
-static __uint32_t verify_application_crc(__uint32_t crc_value)
+static uint32_t verify_application_crc(uint32_t crc_value)
 {
   if (crc_value == 0xFFFFFFFF || crc_value == 0x00000000) {
     return -2; // Invalid CRC value
@@ -222,7 +222,13 @@ static __uint32_t verify_application_crc(__uint32_t crc_value)
   uint32_t data_size_words = data_size_bytes / 4;       // 32767 words
   
   // Use word-based processing with half-word inversion enabled
-  __uint32_t computed_crc = HAL_CRC_Calculate(&hcrc, (uint32_t *)APPLICATION_ADDRESS, data_size_bytes);
+  uint32_t computed_crc = HAL_CRC_Calculate(&hcrc, (uint32_t *)APPLICATION_ADDRESS, data_size_bytes);
+
+  printf("Computed CRC: 0x%08X\r\n", computed_crc);
+
+  computed_crc = ~computed_crc; // Invert the computed CRC to match the stored format
+
+  printf("Inverted Computed CRC: 0x%08X\r\n", computed_crc);
 
   if (computed_crc != crc_value) {
     LOG_ERROR("Computed CRC: 0x%08X, Expected CRC: 0x%08X\r\n", computed_crc, crc_value);

@@ -58,3 +58,6 @@ dkms.conf
 Bootloader/build
 App/build
 flash_image.bin
+
+# test play ground
+testing 
