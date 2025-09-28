@@ -234,8 +234,6 @@ static uint32_t verify_application_crc(uint32_t crc_value)
   
   uint32_t computed_crc = compute_crc32(&hcrc, (uint32_t *)APPLICATION_ADDRESS, data_size_bytes);
 
-  computed_crc = ~computed_crc; // Invert the computed CRC to match the stored format
-
   if (computed_crc != crc_value) {
     LOG_ERROR("Computed CRC: 0x%08lX, Expected CRC: 0x%08lX\r\n", computed_crc, crc_value);
     return -3; // CRC mismatch
