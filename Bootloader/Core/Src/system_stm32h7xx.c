@@ -171,7 +171,7 @@
   */
 
 /**
-  * @brief  Setup the microcontroller system
+  * @brief  Setup the microcontrollar system
   *         Initialize the FPU setting and  vector table location
   *         configuration.
   * @param  None

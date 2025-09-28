@@ -45,6 +45,11 @@ ELF      = $(BUILD_DIR)/bootloader.elf
 BIN      = $(BUILD_DIR)/bootloader.bin
 
 # =====================
+# Size Limits
+# =====================
+MAX_SIZE = 131072  # 128 KB in bytes
+
+# =====================
 # Linker Flags
 # =====================
 LDFLAGS = -TSTM32H755ZITX.ld
@@ -54,6 +59,15 @@ LDFLAGS = -TSTM32H755ZITX.ld
 # =====================
 all: $(BIN)
 	$(SIZE) $(ELF)
+	@echo "Checking binary size..."
+	@BIN_SIZE=$$(stat -c%s $(BIN)); \
+	if [ $$BIN_SIZE -gt $(MAX_SIZE) ]; then \
+		echo "ERROR: Binary size ($$BIN_SIZE bytes) exceeds maximum allowed size ($(MAX_SIZE) bytes)"; \
+		echo "Binary is $$(($$BIN_SIZE - $(MAX_SIZE))) bytes too large"; \
+		exit 1; \
+	else \
+		echo "Binary size check passed: $$BIN_SIZE bytes ($$(($(MAX_SIZE) - $$BIN_SIZE)) bytes remaining)"; \
+	fi
 
 # =====================
 # vpath for source files
@@ -87,7 +101,6 @@ $(ELF): $(OBJS)
 # Convert ELF to BIN
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
-	@truncate -s 131072 $@
 
 # =====================
 # Clean Rule
