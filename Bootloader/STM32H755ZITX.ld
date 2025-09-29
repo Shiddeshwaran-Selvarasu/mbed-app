@@ -44,8 +44,8 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Memories definition */
 MEMORY
 {
-  RAM_D1 (xrw)   : ORIGIN = 0x24000000, LENGTH =  512K
-  FLASH   (rx)   : ORIGIN = 0x08000000, LENGTH = 128K    /* Memory is divided. Actual start is 0x08000000 and actual length is 2048K */
+  RAM_D1 (xrw)   : ORIGIN = 0x24000000, LENGTH = 512K
+  FLASH   (rx)   : ORIGIN = 0x08000000, LENGTH = 256K    /* Memory is divided. Actual start is 0x08000000 and actual length is 2048K */
   DTCMRAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 128K
   RAM_D2 (xrw)   : ORIGIN = 0x30000000, LENGTH = 288K
   RAM_D3 (xrw)   : ORIGIN = 0x38000000, LENGTH = 64K

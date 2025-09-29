@@ -1,6 +1,6 @@
 # Embedded Application Flash Layout
 
-This document describes the flash memory layout for the embedded application with bootloader, OTA support, dual application slots (A/B), and persistent storage.
+This document describes the flash memory layout for the embedded application with bootloader, OTA support, and persistent storage.
 
 ---
 
@@ -15,20 +15,19 @@ This document describes the flash memory layout for the embedded application wit
 
 | Region             | Start Address | End Address   | Size (bytes) | Size (KB) | Size (Hex) |
 |--------------------|--------------:|--------------:|-------------:|----------:|-----------:|
-| **Bootloader**     | `0x08000000`  | `0x0801FFFF`  | 131,072      | 128 KB    | `0x20000`  |
-| **System Configs** | `0x08020000`  | `0x0803FFFF`  | 131,072      | 128 KB    | `0x20000`  |
-| **Reserved**       | `0x08040000`  | `0x0805FFFF`  | 131,072      | 128 KB    | `0x20000`  |
-| **Slot A**         | `0x08060000`  | `0x0810FFFF`  | 720,896      | 704 KB    | `0xB0000`  |
-| **Slot B**         | `0x08110000`  | `0x081BFFFF`  | 720,896      | 704 KB    | `0xB0000`  |
-| **Persistent Data**| `0x081C0000`  | `0x081FFFFF`  | 262,144      | 256 KB    | `0x40000`  |
+| **Bootloader**     | `0x08000000`  | `0x0803FFFF`  | 262,144      | 256 KB    | `0x040000` |
+| **System Configs** | `0x08040000`  | `0x0805FFFF`  | 131,072      | 128 KB    | `0x020000` |
+| **Reserved**       | `0x08060000`  | `0x080BFFFF`  | 393,216      | 384 KB    | `0x060000` |
+| **Persistent Data**| `0x080C0000`  | `0x080FFFFF`  | 262,144      | 256 KB    | `0x040000` |
+| **Application**    | `0x08100000`  | `0x081FFFFF`  | 786,432      | 1024 KB   | `0x100000` |
 
 ---
 
 ## Design Notes
-- **Bootloader (128 KB):**  
+- **Bootloader (192 KB):**  
   Handles OTA update logic, integrity checks, and switching between Slot A and Slot B.
   
-- **System Configs (128 KB):**  
+- **System Configs (64 KB):**  
   Stores system parameters, device configuration, and flags for OTA update state.
   
 - **Reserved (128 KB):**  
@@ -41,4 +40,11 @@ This document describes the flash memory layout for the embedded application wit
   
 - **Persistent Data (256 KB):**  
   Stores calibration data, logs, counters, or other data that must survive firmware upgrades.
+ 
+ ---
+## Reference
+
+- ext_flash_reciever.h
+- main.h
+
 

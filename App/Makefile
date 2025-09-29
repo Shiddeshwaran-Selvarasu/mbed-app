@@ -89,11 +89,11 @@ $(ELF): $(OBJS)
 # Convert ELF to BIN
 $(BIN): $(ELF) | $(BUILD_DIR)
 	$(OBJCOPY) -O binary $< $(BUILD_DIR)/tmp.bin
-	$(SREC_CAT) $(BUILD_DIR)/tmp.bin -binary -fill 0x00 0x0000 0x1FFFC -o $@ -binary
+	$(SREC_CAT) $(BUILD_DIR)/tmp.bin -binary -fill 0x00 0x0000 0xFFFFC -o $@ -binary
 
 # Create CRC32 for application binary
 $(CRC_BIN): $(BIN) | $(BUILD_DIR)
-	$(SREC_CAT) $< -binary -crc32-l-e 0x1FFFC -o $@ -binary
+	$(SREC_CAT) $< -binary -crc32-l-e 0xFFFFC -o $@ -binary
 
 # =====================
 # Clean Rule

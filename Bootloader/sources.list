@@ -3,6 +3,9 @@ Core/Src/sysmem.c
 Core/Src/syscalls.c
 Core/Src/stm32h7xx_it.c
 Core/Src/system_stm32h7xx.c
+Core/Src/crc_helper.c
+Core/Src/conf_helper.c
+Core/Src/ext_flash_reciever.c
 Core/Src/stm32h7xx_hal_msp.c
 Common/Src/logger.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal.c

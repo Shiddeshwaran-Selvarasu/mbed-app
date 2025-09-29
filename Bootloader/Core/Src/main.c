@@ -1,12 +1,14 @@
 #include "main.h"
-#include "stdio.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "logger.h"
 #include "crc_helper.h"
+#include "conf_helper.h"
 #include "ext_flash_reciever.h"
 
 /* Bootloader Version Info start */
-#define Major_VERSION  1
+#define Major_VERSION  2
 #define Minor_VERSION  0
 #define Patch_VERSION  0
 
@@ -16,14 +18,8 @@
 #define BL_VER_STRING "Bootloader Version " BL_VERSION " stable release"
 /* Bootloader Version Info end */
 
-#define CONFIG_ADDRESS          0x08020000U
-
-/* Load Configuration from Flash */
-ETX_CONFIG_ *etx_config = (ETX_CONFIG_ *)CONFIG_ADDRESS;
-
-#define APPLICATION_ADDRESS     etx_config->slot_info[etx_config->active_slot].slot_addr
-#define APPLICATION_MAX_SIZE    (704 * 1024)  // 704 KB
-#define APPLICATION_CRC_ADDRESS (APPLICATION_ADDRESS + APPLICATION_MAX_SIZE - 4)
+/* Create a config data in Ram and load data from flash */
+ETX_CONFIG_ *etx_config;
 
 CRC_HandleTypeDef hcrc;
 UART_HandleTypeDef huart2;
@@ -45,7 +41,6 @@ static void goto_application( void );
 static uint32_t get_application_crc( void );
 static uint32_t verify_application_crc(uint32_t crc_value);
 static void validate_config( void );
-static void populate_default_config( void );
 
 /**
   * @brief  The Bootloader entry point.
@@ -65,45 +60,75 @@ int main(void)
 
   LOG_INFO("%s\r\n", BL_VER_STRING);
 
+  etx_config = (ETX_CONFIG_ *)malloc(sizeof(ETX_CONFIG_));
+  config_get(etx_config);
+
   validate_config(); // Validate and load configuration
 
   GPIO_PinState ota_pin_state;
   uint32_t timeout = HAL_GetTick() + 5000; // 5 seconds timeout
-  /**
+
+  /*
    * crc_check_status values: 
-   * 1 - Failed
-   * 0 - Unknown (not checked yet)
+   * 1 - Yes
+   * 0 - not set
    * 
-   * In total 8 bits(rrrrrcoa) (crc status + ota status + app jump status + reserved):
-   * c - crc_check_status
-   * o - ota_mode_status 
-   * a - app_jump_status
-   * r - reserved for future use
+   * In total 8 bits:
+   * LSB - first time boot
+   * 2nd - application failed
+   * 3rd - download requested from app
+   * 4th - button pressed for Download mode
+   * others - not in use
    */
-  uint8_t application_boot_status = 0;
+  uint8_t etx_app_download_required = 0;
 
-  LOG_INFO("Press the USER Button to switch to Fastboot Mode...\r\n");
+  /************************** Check if APP DL required - START *************************/
 
-  do {
-    ota_pin_state = HAL_GPIO_ReadPin(OTA_BTN_GPIO_Port, OTA_BTN_Pin);
-
-    if (ota_pin_state == GPIO_PIN_SET || HAL_GetTick() > timeout) {
-      break;
-    }
-  } while (1);
-
-  if (ota_pin_state == GPIO_PIN_SET) {
-    LOG_INFO("OTA Button Pressed. Entering Fastboot Mode...\r\n");
-    // TODO: Add OTA update logic here....
-    if (0) {
-      // OTA successful
-      // TODO: add reboot logic here....
-    } else {
-      // OTA failed
-      application_boot_status |= 0x02; // Set ota_mode_status to 1 (failed)
-      LOG_ERROR("OTA Update failed...\r\n");
-    }
+  if (etx_config->reboot_reason == ETX_FIRST_TIME_BOOT) {
+    LOG_INFO("First time boot detected...\r\n");
+    etx_app_download_required |= 0x01; // Set 1st bit to indicate first time boot
+  } else if (etx_config->reboot_reason == ETX_DL_REQUEST) {
+    LOG_INFO("Reboot reason code: 0x%08lX\r\n", etx_config->reboot_reason);
+    etx_app_download_required |= 0x04; // Set 3rd bit to indicate download requested from app
+  } else if (etx_config->reboot_reason == ETX_APP_FAILED) {
+    LOG_INFO("Application failure detected...\r\n");
+    etx_app_download_required |= 0x02; // Set 2nd bit to indicate application failure
   } else {
+    etx_app_download_required = 0;
+  }
+
+  if (etx_app_download_required == 0) {
+    LOG_INFO("Press the USER Button to switch to Download Mode...\r\n");
+
+    do {
+      ota_pin_state = HAL_GPIO_ReadPin(OTA_BTN_GPIO_Port, OTA_BTN_Pin);
+
+      if (ota_pin_state == GPIO_PIN_SET || HAL_GetTick() > timeout) {
+        break;
+      }
+    } while (1);
+
+    if (ota_pin_state == GPIO_PIN_SET) {
+      LOG_INFO("USER Button Pressed. Entering Download Mode...\r\n");
+      etx_app_download_required |= 0x08; // Set 4th bit to indicate button pressed for Download mode
+    }
+  }
+
+  /*************************** Check if APP DL required - END **************************/
+
+  /******************** Initiate ETX APP DL through USART2 - START *********************/
+
+  if (etx_app_download_required != 0) {
+    if (etx_app_download_and_flash(etx_config) == ETX_DL_EX_ERR) {
+      LOG_ERROR("ETX APP Download failed...\r\n");
+    }
+  }
+
+  /********************* Initiate ETX APP DL through USART2 - END **********************/
+
+  /*********************** Initiate Jump to application - START ************************/
+
+  if (etx_config->is_app_bootable) {
     uint32_t app_crc = get_application_crc();
     if (app_crc < 0) {
       LOG_ERROR("Failed to get application CRC. Error code: %d\r\n", app_crc);
@@ -115,25 +140,19 @@ int main(void)
         LOG_INFO("CRC verified successfully...\r\n");
         LOG_INFO("Loading application...\r\n");
         goto_application();
-        application_boot_status |= 0x01; // Set app_jump_status to 1 (failed)
       } else {
-        application_boot_status |= 0x04; // Set crc_check_status to 1 (failed)
         LOG_ERROR("CRC verification failed. Error code: %d\r\n", verify_status);
       }
     }
   }
 
-  LOG_INFO("Staying in Bootloader mode...\r\n");
+  /************************ Initiate Jump to application - END *************************/
 
-  // Indicate boot status code in logs
-  if (application_boot_status != 0) LOG_INFO("Boot Status: 0x%02X\r\n", application_boot_status);
+  LOG_INFO("Staying in Bootloader mode...\r\n");
 
   while (1)
   {
-    if (application_boot_status & 0x01) HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin); // Application jump failed
-    if (application_boot_status & 0x02) HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin); // OTA mode failed
-    if (application_boot_status & 0x04) HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin); // CRC check failed
-
+    HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin); // Application jump failed
     HAL_Delay(2500);
   }
 }
@@ -203,17 +222,17 @@ static void goto_application( void )
  */
 static uint32_t get_application_crc( void )
 {
-  uint32_t *app_crc_address = (uint32_t *)APPLICATION_CRC_ADDRESS;
+  uint32_t *app_crc = (uint32_t *)APPLICATION_CRC_ADDRESS;
 
-  if (app_crc_address == NULL) {
+  if (app_crc == NULL) {
     return -1; // Invalid address
   }
 
-  if (*app_crc_address == 0xFFFFFFFF || *app_crc_address == 0x00000000) {
+  if (*app_crc == 0xFFFFFFFF || *app_crc == 0x00000000) {
     return -2; // Invalid CRC value
   }
 
-  return *app_crc_address;
+  return *app_crc;
 }
 
 /**
@@ -228,9 +247,7 @@ static uint32_t verify_application_crc(uint32_t crc_value)
   }
 
   // Calculate CRC over application data using STM32 hardware CRC peripheral
-  // Data: 131068 bytes (128KB - 4 bytes for CRC storage) = 32767 words exactly
-  uint32_t data_size_bytes = APPLICATION_MAX_SIZE - 4;  // 131068 bytes
-  // uint32_t data_size_words = data_size_bytes / 4;       // 32767 words
+  uint32_t data_size_bytes = APPLICATION_MAX_SIZE - 4; 
   
   uint32_t computed_crc = compute_crc32(&hcrc, (uint32_t *)APPLICATION_ADDRESS, data_size_bytes);
 
@@ -242,65 +259,30 @@ static uint32_t verify_application_crc(uint32_t crc_value)
   return 0; // CRC matches
 }
 
+/**
+ * @brief  valiade the configuration data in flash
+ * @param  None
+ * @retval None
+ */
 void validate_config( void )
 {
-  if (etx_config->config_valid_marker != 0xDEADBEEF) {
+  if (etx_config->config_valid_marker != VALID_CONF_MARKER) {
     LOG_ERROR("Invalid configuration marker: 0x%08lX\r\n", etx_config->config_valid_marker);
-    populate_default_config();
+    config_load_defaults(etx_config);
+    if (config_save(etx_config) != CFG_SAVE_OK) {
+      LOG_ERROR("Failed to save default configuration\r\n");
+    }
     return;
   }
 
-  if(verify_crc32(&hcrc, (uint8_t *)etx_config, sizeof(ETX_CONFIG_) - 4, etx_config->config_crc) != CRC_OK) {
+  if(verify_crc32(&hcrc, (uint32_t *)etx_config, sizeof(ETX_CONFIG_) - 4, etx_config->config_crc) != CRC_OK) {
     LOG_ERROR("Configuration CRC mismatch. Expected: 0x%08lX\r\n", etx_config->config_crc);
-    populate_default_config();
+    config_load_defaults(etx_config);
+    if (config_save(etx_config) != CFG_SAVE_OK) {
+      LOG_ERROR("Failed to save default configuration\r\n");
+    }
     return;
   }
-}
-
-void populate_default_config( void )
-{
-  LOG_INFO("Populating default configuration...\r\n");
-
-  // Populate default configuration values
-  etx_config->reboot_reason = 0;
-  etx_config->active_slot = ETX_SLOT_A;
-  etx_config->slot_count = ETX_NO_OF_SLOTS;
-
-  // Slot A
-  etx_config->slot_info[ETX_SLOT_A].is_active = true;
-  etx_config->slot_info[ETX_SLOT_A].is_occupied = false;
-  etx_config->slot_info[ETX_SLOT_A].is_bootable = false;
-  etx_config->slot_info[ETX_SLOT_A].reserved = false;
-  etx_config->slot_info[ETX_SLOT_A].slot_addr = 0x08060000;
-  etx_config->slot_info[ETX_SLOT_A].slot_size = APPLICATION_MAX_SIZE;
-  etx_config->slot_info[ETX_SLOT_A].app_size = 0; // No application yet
-  etx_config->slot_info[ETX_SLOT_A].app_crc = 0;  // No CRC yet
-
-  // Slot B
-  etx_config->slot_info[ETX_SLOT_B].is_active = false;
-  etx_config->slot_info[ETX_SLOT_B].is_occupied = false;
-  etx_config->slot_info[ETX_SLOT_B].is_bootable = false;
-  etx_config->slot_info[ETX_SLOT_B].reserved = false;
-  etx_config->slot_info[ETX_SLOT_B].slot_addr = 0x08110000;
-  etx_config->slot_info[ETX_SLOT_B].slot_size = APPLICATION_MAX_SIZE;
-  etx_config->slot_info[ETX_SLOT_B].app_size = 0; // No application yet
-  etx_config->slot_info[ETX_SLOT_B].app_crc = 0;  // No CRC yet
-
-  // Reset reboot reason
-  etx_config->reboot_reason = ETX_FIRST_TIME_BOOT;
-
-  // Reserved space
-  for (int i = 0; i < 10; i++) {
-    etx_config->reserved[i] = 0;
-  }
-
-  // Set valid marker and compute CRC
-  etx_config->config_valid_marker = 0xDEADBEEF;
-  
-  // Compute CRC over the configuration data excluding the CRC field itself
-  uint32_t computed_crc = compute_crc32(&hcrc, (uint8_t *)etx_config, sizeof(ETX_CONFIG_) - 4);
-  etx_config->config_crc = computed_crc;
-  LOG_INFO("Default configuration populated with CRC: 0x%08lX\r\n", etx_config->config_crc);
 }
 
 /***********************************************************

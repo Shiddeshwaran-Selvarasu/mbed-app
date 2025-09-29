@@ -47,7 +47,7 @@ BIN      = $(BUILD_DIR)/bootloader.bin
 # =====================
 # Size Limits
 # =====================
-MAX_SIZE = 131072  # 128 KB in bytes
+MAX_SIZE = 262144  # 256 KB in bytes
 
 # =====================
 # Linker Flags

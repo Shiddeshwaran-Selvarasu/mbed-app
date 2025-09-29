@@ -12,10 +12,6 @@ extern "C" {
 #define ETX_FRAME_ACK  0x00U    // ACK
 #define ETX_FRAME_NACK 0x01U    // NACK
 
-#define ETX_APP_SLOT_A_FLASH_ADDR  0x08060000UL   //App slot 0 address
-#define ETX_APP_SLOT_B_FLASH_ADDR  0x08110000UL   //App slot 1 address
-#define ETX_CONFIG_FLASH_ADDR     0x08020000UL   //Configuration's address
-
 #define ETX_FRAME_DATA_MAX_SIZE ( 1024 )  //Maximum data Size
 #define ETX_FRAME_DATA_OVERHEAD (    9 )  //data overhead
 #define ETX_FRAME_PACKET_MAX_SIZE ( ETX_FRAME_DATA_MAX_SIZE + ETX_FRAME_DATA_OVERHEAD )
@@ -42,7 +38,7 @@ typedef enum
   ETX_DL_STATE_SUCCESS = 5,
 }ETX_DL_STATE_;
 
-ETX_DL_EX_ etx_app_download_and_flash( void );
+ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config);
 
 #ifdef __cplusplus
 }

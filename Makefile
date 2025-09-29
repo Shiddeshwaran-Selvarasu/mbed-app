@@ -12,7 +12,7 @@ all: $(APP_BIN) $(BOOT_BIN)
 
 	@echo "Merging bootloader and app into flash image..."
 	@dd if=$(BOOT_BIN) of=$(FLASH_IMG) bs=1 seek=0 conv=notrunc status=none
-	@dd if=$(APP_BIN) of=$(FLASH_IMG) bs=1 seek=262144 conv=notrunc status=none
+	@dd if=$(APP_BIN) of=$(FLASH_IMG) bs=1 seek=1048576 conv=notrunc status=none
 
 	@echo "Flash image created successfully: $(FLASH_IMG)"
 

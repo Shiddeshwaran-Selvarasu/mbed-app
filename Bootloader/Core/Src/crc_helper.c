@@ -1,5 +1,4 @@
 #include "crc_helper.h"
-#include "stm32h7xx_hal.h"
 
 /**
  * @brief  Compute CRC32 over given data using STM32 hardware CRC peripheral
@@ -8,12 +7,12 @@
  * @param  length: Length of data in bytes
  * @retval Computed CRC32 value
  */
-uint32_t compute_crc32(CRC_HandleTypeDef* hcrc, uint8_t* data, size_t length) {
+uint32_t compute_crc32(CRC_HandleTypeDef* hcrc, uint32_t* data, size_t length) {
     if (hcrc == NULL || data == NULL || length == 0) {
         return 0; // Invalid parameters
     }
 
-    uint32_t crc = HAL_CRC_Calculate(hcrc, (uint32_t*)data, length);
+    uint32_t crc = HAL_CRC_Calculate(hcrc, data, length);
 
     return ~crc;
 }
@@ -26,7 +25,7 @@ uint32_t compute_crc32(CRC_HandleTypeDef* hcrc, uint8_t* data, size_t length) {
  * @param  expected_crc: Expected CRC32 value to compare against
  * @retval CRC_OK if match, error code otherwise
  */
-crc_status_t verify_crc32(CRC_HandleTypeDef* hcrc, uint8_t* data, size_t length, uint32_t expected_crc) {
+crc_status_t verify_crc32(CRC_HandleTypeDef* hcrc, uint32_t* data, size_t length, uint32_t expected_crc) {
     if (hcrc == NULL || data == NULL || length == 0) {
         return CRC_ERROR_INVALID_ADDRESS; // Invalid parameters
     }
