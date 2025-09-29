@@ -286,6 +286,9 @@ void populate_default_config( void )
   etx_config->slot_info[ETX_SLOT_B].app_size = 0; // No application yet
   etx_config->slot_info[ETX_SLOT_B].app_crc = 0;  // No CRC yet
 
+  // Reset reboot reason
+  etx_config->reboot_reason = ETX_FIRST_TIME_BOOT;
+
   // Reserved space
   for (int i = 0; i < 10; i++) {
     etx_config->reserved[i] = 0;
