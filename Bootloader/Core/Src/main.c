@@ -8,8 +8,8 @@
 #include "ext_flash_reciever.h"
 
 /* Bootloader Version Info start */
-#define Major_VERSION  2
-#define Minor_VERSION  0
+#define Major_VERSION  3
+#define Minor_VERSION  1
 #define Patch_VERSION  0
 
 #define __STRINGIFY(x) #x
@@ -119,8 +119,14 @@ int main(void)
   /******************** Initiate ETX APP DL through USART2 - START *********************/
 
   if (etx_app_download_required != 0) {
-    if (etx_app_download_and_flash(etx_config) == ETX_DL_EX_ERR) {
+    ETX_DL_EX_ dl_status = etx_app_download_and_flash(etx_config);
+    if (dl_status == ETX_DL_EX_ERR) {
       LOG_ERROR("ETX APP Download failed...\r\n");
+      etx_config->is_app_bootable = false;
+    } else if (dl_status == ETX_DL_EX_ABORT) {
+      LOG_INFO("ETX APP Download aborted before writing to flash...\r\n");
+    } else {
+      LOG_INFO("ETX APP Download successful...\r\n");
     }
   }
 
@@ -132,6 +138,7 @@ int main(void)
     uint32_t app_crc = get_application_crc();
     if (app_crc < 0) {
       LOG_ERROR("Failed to get application CRC. Error code: %d\r\n", app_crc);
+      etx_config->is_app_bootable = false;
     } else {
       LOG_INFO("Application CRC: 0x%08lX\r\n", app_crc);
       LOG_INFO("Verifying application CRC...\r\n");
@@ -142,7 +149,11 @@ int main(void)
         goto_application();
       } else {
         LOG_ERROR("CRC verification failed. Error code: %d\r\n", verify_status);
+        etx_config->is_app_bootable = false;
       }
+    }
+    if (config_save(etx_config) != CFG_SAVE_OK) {
+      LOG_ERROR("Failed to save updated configuration\r\n");
     }
   }
 
@@ -222,7 +233,7 @@ static void goto_application( void )
  */
 static uint32_t get_application_crc( void )
 {
-  uint32_t *app_crc = (uint32_t *)APPLICATION_CRC_ADDRESS;
+  uint32_t *app_crc = (uint32_t *)&etx_config->app_crc;
 
   if (app_crc == NULL) {
     return -1; // Invalid address

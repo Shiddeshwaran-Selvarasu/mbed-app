@@ -12,7 +12,6 @@ typedef enum {
     CFG_SAVE_ERR = -1,
 } CFG_SAVE_STATUS_;
 
-#define HAL_FLASH_OP_TIMEOUT 1000U /* 1 s */
 #define VALID_CONF_MARKER 0xDEADBEEF
 
 void config_get(ETX_CONFIG_ *etx_config);

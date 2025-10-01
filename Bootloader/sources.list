@@ -8,6 +8,7 @@ Core/Src/conf_helper.c
 Core/Src/ext_flash_reciever.c
 Core/Src/stm32h7xx_hal_msp.c
 Common/Src/logger.c
+Common/Src/flash_editor.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_cortex.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_dma.c
