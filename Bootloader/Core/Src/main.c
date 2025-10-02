@@ -10,7 +10,7 @@
 /* Bootloader Version Info start */
 #define Major_VERSION  3
 #define Minor_VERSION  1
-#define Patch_VERSION  0
+#define Patch_VERSION  7
 
 #define __STRINGIFY(x) #x
 #define _STRINGIFY(x) __STRINGIFY(x)

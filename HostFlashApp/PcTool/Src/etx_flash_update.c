@@ -22,14 +22,19 @@ uint32_t sent_data_fragments = 0;
 
 uint32_t CalcCRC(uint8_t * pData, uint32_t DataLength)
 {
-    uint32_t Checksum = 0xFFFFFFFF;
-    for(unsigned int i=0; i < DataLength; i++)
+    uint32_t crc = 0xFFFFFFFF;
+    for(unsigned int i = 0; i < DataLength; i++)
     {
-        uint8_t top = (uint8_t)(Checksum >> 24);
-        top ^= pData[i];
-        Checksum = (Checksum << 8) ^ crc_table[top];
+        crc ^= pData[i];
+        for(int j = 0; j < 8; j++)
+        {
+            if(crc & 1)
+                crc = (crc >> 1) ^ 0xEDB88320;
+            else
+                crc = crc >> 1;
+        }
     }
-    return Checksum;
+    return ~crc;
 }
 
 void delay(uint32_t us)
@@ -74,6 +79,48 @@ bool load_application_bin(char *file_path) {
 
 /* ***** Utility Functions - End ***** */
 
+/* ***** Test Functions - Start ***** */
+
+void test_frame_transmission(int comport_number)
+{
+  printf("=== TEST SEQUENCE START ===\r\n");
+  
+  // First, test the CRC calculation
+  uint8_t test_data[] = {0xAA, 0x01, 0x00, 0x01, 0x01}; // SOF + Type + Len + Payload
+  uint32_t calculated_crc = CalcCRC(test_data, 5);
+  printf("CRC for test data: 0x%08X\r\n", calculated_crc);
+  
+  // Send raw test bytes to see what bootloader receives
+  uint8_t test_frame[] = {
+    0xAA,  // SOF
+    0x01,  // packet_type (CMD)
+    0x00,  // payload_len high byte
+    0x01,  // payload_len low byte  
+    0x01,  // payload[0] (START command)
+    (calculated_crc >> 0) & 0xFF,   // CRC byte 0 (LSB)
+    (calculated_crc >> 8) & 0xFF,   // CRC byte 1
+    (calculated_crc >> 16) & 0xFF,  // CRC byte 2
+    (calculated_crc >> 24) & 0xFF,  // CRC byte 3 (MSB)
+    0xBB   // EOF
+  };
+  
+  printf("Sending test frame (10 bytes):\r\n");
+  for(int i = 0; i < 10; i++) {
+    printf("  Byte[%d]: 0x%02X\r\n", i, test_frame[i]);
+    
+    if( RS232_SendByte(comport_number, test_frame[i]) ) {
+      printf("Failed to send test byte %d\r\n", i);
+      return;
+    }
+    delay(10000); // 10ms delay between bytes
+  }
+  
+  printf("=== TEST SEQUENCE COMPLETE ===\r\n");
+  printf("Check bootloader output now...\r\n");
+}
+
+/* ***** Test Functions - End ***** */
+
 /* ***** IO Functions - Start ***** */
 
 ETX_DL_FRAME_EX_ etx_tx_data(int comport_number, ETX_DL_FRAME_ *buffer)
@@ -89,26 +136,22 @@ ETX_DL_FRAME_EX_ etx_tx_data(int comport_number, ETX_DL_FRAME_ *buffer)
 
   // send (SOF + packet_type + payload_len + payload)
   for(int i = 0; i < (buffer->payload_len + 4); i++) {
-    delay(1);
-    printf("Sending byte: 0x%02X\r\n", ((uint8_t *)&buffer->sof)[i]);
     if( RS232_SendByte(comport_number, ((uint8_t *)&buffer->sof)[i]) ) {
       //some data missed.
       printf("Send Err: %d\n", buffer->packet_type);
       return ETX_DL_FRAME_EX_ERR;
     }
-    printf("Sent byte: 0x%02X\r\n", ((uint8_t *)&buffer->sof)[i]);
+    delay(200000);
   }
 
   // send (CRC + EOF)
   for(int i = 0; i < 5; i++) {
-    delay(1);
-    printf("Sending byte: 0x%02X\r\n", ((uint8_t *)&buffer->crc)[i]);
     if( RS232_SendByte(comport_number, ((uint8_t *)&buffer->crc)[i]) ) {
       //some data missed.
       printf("Send Err: %d\n", buffer->packet_type);
       return ETX_DL_FRAME_EX_ERR;
     }
-    printf("Sent byte: 0x%02X\r\n", ((uint8_t *)&buffer->crc)[i]);
+    delay(200000);
   }
 
   return ETX_DL_FRAME_EX_OK;
@@ -492,9 +535,9 @@ int main(int argc, char *argv[])
       {
       case ETX_DL_STATE_IDLE:
         if(etx_send_start_cmd(comport_number) != ETX_DL_EX_OK){
-          printf("STM32 did not respond to start cmd...");
+          printf("STM32 did not respond to start cmd...\r\n");
         } else {
-          printf("STM32 Acknowledged the start cmd. Sending Header now...");
+          printf("STM32 Acknowledged the start cmd. Sending Header now...\r\n");
           load_application_bin(bin_name);
           dl_state = ETX_DL_STATE_HEADER;
         }
@@ -502,33 +545,31 @@ int main(int argc, char *argv[])
       
       case ETX_DL_STATE_HEADER:
         if(etx_send_fw_info(comport_number) != ETX_DL_EX_OK){
-          printf("STM32 did not respond to header message...");
+          printf("STM32 did not respond to header message...\r\n");
           dl_state = ETX_DL_STATE_FAILED;
         } else {
-          printf("STM32 Acknowledged the header message. Sending Data now...");
+          printf("STM32 Acknowledged the header message. Sending Data now...\r\n");
           dl_state = ETX_DL_STATE_DATA;
         }
         break;
 
       case ETX_DL_STATE_DATA:
         if(etx_send_fw_data(comport_number) != ETX_DL_EX_OK){
-          printf("STM32 did not respond to data message...");
+          printf("STM32 did not respond to data message...\r\n");
           dl_state = ETX_DL_STATE_FAILED;
         } else {
-          printf("STM32 Acknowledged the data message. Sending Data now...");
+          printf("STM32 Acknowledged the data message. Sending Data now...\r\n");
           dl_state = ETX_DL_STATE_SUCCESS;
         }
         break;
 
       case ETX_DL_STATE_FAILED:
         printf("ETX DL failed...");
-        exit_code = -1;
-        break;
+        return -1;
 
       case ETX_DL_STATE_SUCCESS:
-        printf("ETX DL Sucess...");
-        exit_code = 0;
-        break;
+        printf("ETX DL Success...");
+        return 0;
 
       default:
         break;

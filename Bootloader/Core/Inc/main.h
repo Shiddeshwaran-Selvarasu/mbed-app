@@ -12,6 +12,7 @@ extern "C" {
 void Error_Handler(void);
 
 #define HAL_DL_UART_RX_TIMEOUT 10000U /* 10 s */
+#define HAL_DL_UART_RX_MAX_TIMEOUT 100000U /* 100 s */
 
 /* Flash memory addresses */
 #define APPLICATION_ADDRESS    0x08100000UL

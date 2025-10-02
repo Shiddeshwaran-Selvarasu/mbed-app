@@ -44,7 +44,11 @@ CFLAGS   = -mcpu=cortex-m7 -mthumb -O2 -g -Wall -ffunction-sections -fdata-secti
 # =====================
 ELF      = $(BUILD_DIR)/app.elf
 BIN      = $(BUILD_DIR)/app.bin
-CRC_BIN  = $(BUILD_DIR)/app_crc.bin
+
+# =====================
+# Size Limits
+# =====================
+MAX_SIZE = 1048576  # 1 MB in bytes
 
 # =====================
 # Linker Flags
@@ -54,9 +58,16 @@ LDFLAGS = -TSTM32H755ZITX.ld
 # =====================
 # Default Target
 # =====================
-all: $(CRC_BIN)
-	$(SIZE) $(ELF)
-
+all: $(BIN)
+	@echo "Checking binary size..."
+	@BIN_SIZE=$$(stat -c%s $(BIN)); \
+	if [ $$BIN_SIZE -gt $(MAX_SIZE) ]; then \
+		echo "ERROR: Binary size ($$BIN_SIZE bytes) exceeds maximum allowed size ($(MAX_SIZE) bytes)"; \
+		echo "Binary is $$(($$BIN_SIZE - $(MAX_SIZE))) bytes too large"; \
+		exit 1; \
+	else \
+		echo "Binary size check passed: $$BIN_SIZE bytes ($$(($(MAX_SIZE) - $$BIN_SIZE)) bytes remaining)"; \
+	fi
 # =====================
 # vpath for source files
 # =====================
@@ -88,12 +99,7 @@ $(ELF): $(OBJS)
 
 # Convert ELF to BIN
 $(BIN): $(ELF) | $(BUILD_DIR)
-	$(OBJCOPY) -O binary $< $(BUILD_DIR)/tmp.bin
-	$(SREC_CAT) $(BUILD_DIR)/tmp.bin -binary -fill 0x00 0x0000 0xFFFFC -o $@ -binary
-
-# Create CRC32 for application binary
-$(CRC_BIN): $(BIN) | $(BUILD_DIR)
-	$(SREC_CAT) $< -binary -crc32-l-e 0xFFFFC -o $@ -binary
+	$(OBJCOPY) -O binary $< $@
 
 # =====================
 # Clean Rule
