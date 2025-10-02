@@ -75,11 +75,6 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
         dl_state = ETX_DL_STATE_FAILED;
         etx_send_response(ETX_DL_RSP_NACK);
       }
-
-      LOG_INFO("Recieved data: \r\n");
-      for(uint32_t i = 0; i < 5; i++ ) {
-        LOG_INFO("0x%08lX\r\n", ((uint32_t *)rx_buffer)[i]);
-      }
     }
 
     ETX_DL_FRAME_ *received_frame = (ETX_DL_FRAME_ *)rx_buffer;
@@ -175,16 +170,14 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
       }
 
       LOG_INFO("Download failed. Exiting...\r\n");
-      ret_val = ETX_DL_EX_ERR;
-      break;
+      return ETX_DL_EX_ERR;
 
     case ETX_DL_STATE_SUCCESS:
       config->is_app_bootable = false;
       config->is_app_flashed = true;
       config->reboot_reason = ETX_NORMAL_BOOT;
       LOG_INFO("Download successful. Exiting...\r\n");
-      ret_val = ETX_DL_EX_OK;
-      break;
+      return ETX_DL_EX_OK;
 
     default:
       dl_state = ETX_DL_STATE_FAILED;
