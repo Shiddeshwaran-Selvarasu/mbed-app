@@ -18,7 +18,6 @@ static uint16_t total_data_fragments;
 static uint16_t received_data_fragments;
 static uint32_t expected_crc;
 static bool is_data_transfer_complete;
-static bool is_data_transfer_failed;
 static bool is_flash_write_started;
 static uint8_t nack_sent_count = 0;
 static const uint8_t max_nack_retries = 3;
@@ -58,7 +57,6 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
   total_data_fragments = 0;
   received_data_fragments = 0;
   is_data_transfer_complete = false;
-  is_data_transfer_failed = false;
   is_flash_write_started = false;
   expected_crc = 0;
 
@@ -76,6 +74,11 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
         LOG_ERROR("Error receiving data\r\n");
         dl_state = ETX_DL_STATE_FAILED;
         etx_send_response(ETX_DL_RSP_NACK);
+      }
+
+      LOG_INFO("Recieved data: \r\n");
+      for(uint32_t i = 0; i < 5; i++ ) {
+        LOG_INFO("0x%08lX\r\n", ((uint32_t *)rx_buffer)[i]);
       }
     }
 
@@ -111,23 +114,8 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
         received_data_fragments = 0;
 
         etx_send_response(ETX_DL_RSP_ACK);
-
-        // send individual payload size limit to Host
-        ETX_DL_FRAME_ payload_size_frame;
-        memset(&payload_size_frame, 0, sizeof(ETX_DL_FRAME_));
-        payload_size_frame.sof = ETX_FRAME_SOF;
-        payload_size_frame.eof = ETX_FRAME_EOF;
-        payload_size_frame.packet_type = ETX_DL_FRAME_TYPE_HEADER;
-        payload_size_frame.payload[0] = (ETX_FRAME_DATA_MAX_SIZE >> 8) & 0xFF;
-        payload_size_frame.payload[1] = ETX_FRAME_DATA_MAX_SIZE & 0xFF;
-        payload_size_frame.payload_len = 2;
-        if (etx_send_data(&payload_size_frame) != ETX_DL_FRAME_EX_OK) {
-          LOG_ERROR("Failed to send payload size to host\r\n");
-          dl_state = ETX_DL_STATE_FAILED;
-        } else {
-          dl_state = ETX_DL_STATE_DATA;
-          LOG_INFO("Transitioning to DATA state...\r\n");
-        }
+        LOG_INFO("Transitioning to DATA state...\r\n");
+        dl_state = ETX_DL_STATE_DATA;
       } else {
         etx_send_response(ETX_DL_RSP_NACK);
       }
@@ -141,7 +129,6 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
           if (flash_erase_application() != HAL_OK) {
             LOG_ERROR("Failed to erase application area\r\n");
             dl_state = ETX_DL_STATE_FAILED;
-            is_data_transfer_failed = true;
             break;
           }
           is_flash_write_started = true;
@@ -157,7 +144,6 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
         if (status != HAL_OK) {
           LOG_ERROR("Failed to flash data at address 0x%08lX\r\n", APPLICATION_ADDRESS + (received_data_fragments * ETX_FRAME_DATA_MAX_SIZE));
           dl_state = ETX_DL_STATE_FAILED;
-          is_data_transfer_failed = true;
           break;
         }
 
@@ -174,7 +160,7 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
                   received_frame->payload_len == 1 &&
                   received_frame->payload[0] == ETX_DL_CMD_END) {
         LOG_INFO("Received DL end command. Transitioning to CRC state...\r\n");
-        dl_state = ETX_DL_STATE_CRC;
+        dl_state = ETX_DL_STATE_SUCCESS;
         etx_send_response(ETX_DL_RSP_ACK);
       } else {
         etx_send_response(ETX_DL_RSP_NACK);
@@ -182,17 +168,6 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
       break;
 
     case ETX_DL_STATE_FAILED:
-      if (is_data_transfer_failed) {
-        ETX_DL_FRAME_ abort_frame;
-        memset(&abort_frame, 0, sizeof(ETX_DL_FRAME_));
-        abort_frame.sof = ETX_FRAME_SOF;
-        abort_frame.eof = ETX_FRAME_EOF;
-        abort_frame.packet_type = ETX_DL_FRAME_TYPE_CMD;
-        abort_frame.payload[0] = ETX_DL_CMD_ABORT;
-        abort_frame.payload_len = 1;
-        etx_send_data(&abort_frame);
-      }
-
       if (is_flash_write_started) {
         config->is_app_bootable = false;
         config->is_app_flashed = false;
@@ -236,6 +211,7 @@ static ETX_DL_FRAME_EX_ etx_receive_data(uint8_t *buffer)
   status = etx_rx_data(buffer);
   if (status != HAL_OK) {
     if (status == HAL_TIMEOUT) {
+      LOG_DEBUG("No data received...\r\n");
       return ETX_DL_FRAME_EX_NO_DATA; // No data received
     }
     return ETX_DL_FRAME_EX_ERR;
@@ -334,11 +310,11 @@ static HAL_StatusTypeDef etx_tx_data(ETX_DL_FRAME_ *buffer)
   buffer->crc = compute_crc32(&hcrc, (uint32_t *)&buffer, (buffer->payload_len + 4)); 
 
   // send (SOF + packet_type + payload_len + payload)
-  status = HAL_UART_Transmit(&huart2, (uint8_t *)&buffer->sof, (buffer->payload_len + 4), HAL_MAX_DELAY);
+  status = HAL_UART_Transmit(&huart2, (uint8_t *)&buffer->sof, (buffer->payload_len + 4), HAL_DL_UART_RX_TIMEOUT);
   if (status != HAL_OK) return status;
 
   // send (CRC + EOF)
-  status = HAL_UART_Transmit(&huart2, (uint8_t *)&buffer->crc, 5, HAL_MAX_DELAY);
+  status = HAL_UART_Transmit(&huart2, (uint8_t *)&buffer->crc, 5, HAL_DL_UART_RX_TIMEOUT);
   if (status != HAL_OK) return status;
 
   return HAL_OK;
@@ -350,7 +326,7 @@ static HAL_StatusTypeDef etx_tx_rsp(ETX_DL_RSPF_ *buffer)
     return HAL_ERROR;
   }
 
-  return HAL_UART_Transmit(&huart2, (uint8_t *)&buffer->sof, ETX_RSPF_PACKET_SIZE, HAL_MAX_DELAY);
+  return HAL_UART_Transmit(&huart2, (uint8_t *)&buffer->sof, ETX_RSPF_PACKET_SIZE, HAL_DL_UART_RX_TIMEOUT);
 }
 
 static HAL_StatusTypeDef etx_rx_data(uint8_t *buffer)
@@ -363,7 +339,7 @@ static HAL_StatusTypeDef etx_rx_data(uint8_t *buffer)
   HAL_StatusTypeDef status;
 
   // Receive SOF
-  status = HAL_UART_Receive(&huart2, &buffer[index], 1, HAL_MAX_DELAY);
+  status = HAL_UART_Receive(&huart2, &buffer[index], 1, HAL_DL_UART_RX_TIMEOUT);
   if (status != HAL_OK) {
     return status;
   } else if (buffer[index] != ETX_FRAME_SOF) {
@@ -372,7 +348,7 @@ static HAL_StatusTypeDef etx_rx_data(uint8_t *buffer)
 
   // check for payload type and length
   index++;
-  status = HAL_UART_Receive(&huart2, &buffer[index], 3, HAL_MAX_DELAY);
+  status = HAL_UART_Receive(&huart2, &buffer[index], 3, HAL_DL_UART_RX_TIMEOUT);
   if (status != HAL_OK) {
     return status;
   }
@@ -384,13 +360,13 @@ static HAL_StatusTypeDef etx_rx_data(uint8_t *buffer)
 
   // Receive payload
   index += 3;
-  status = HAL_UART_Receive(&huart2, &buffer[index], payload_len, HAL_MAX_DELAY);
+  status = HAL_UART_Receive(&huart2, &buffer[index], payload_len, HAL_DL_UART_RX_TIMEOUT);
   if (status != HAL_OK) {
     return status;
   }
 
   // Receive CRC and EOF
-  status = HAL_UART_Receive(&huart2, &buffer[index], 5, HAL_MAX_DELAY);
+  status = HAL_UART_Receive(&huart2, &buffer[index], 5, HAL_DL_UART_RX_TIMEOUT);
   if (status != HAL_OK) {
     return status;
   } else if (buffer[index + 4] != ETX_FRAME_EOF) {
@@ -408,7 +384,7 @@ static HAL_StatusTypeDef etx_rx_rsp(ETX_DL_RSPF_ *buffer)
 
   HAL_StatusTypeDef status;
 
-  status = HAL_UART_Receive(&huart2, (uint8_t *)&buffer->sof, ETX_RSPF_PACKET_SIZE, HAL_MAX_DELAY);
+  status = HAL_UART_Receive(&huart2, (uint8_t *)&buffer->sof, ETX_RSPF_PACKET_SIZE, HAL_DL_UART_RX_TIMEOUT);
   if (status != HAL_OK) {
     return status;
   } else {

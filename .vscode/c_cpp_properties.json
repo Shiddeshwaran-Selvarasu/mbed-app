@@ -1,6 +1,28 @@
 {
   "configurations": [
     {
+      "name": "linux-gcc-x64",
+      "includePath": [
+        "${workspaceFolder}/**"
+      ],
+      "defines": [
+        "USE_HAL_DRIVER",
+        "STM32H755xx",
+        "CORE_CM7",
+        "BOOTLOADER"
+      ],
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "${default}",
+      "cppStandard": "${default}",
+      "intelliSenseMode": "linux-gcc-x64",
+      "compilerArgs": [
+        "-mcpu=cortex-m7",
+        "-mthumb",
+        "-ffunction-sections",
+        "-fdata-sections"
+      ]
+    },
+        {
       "name": "Bootloader (STM32H755xx)",
       "includePath": [
         "${workspaceFolder}/Bootloader/Core/Inc",
@@ -54,6 +76,28 @@
         "-mthumb",
         "-ffunction-sections",
         "-fdata-sections"
+      ]
+    },
+    {
+      "name": "Host Flash App (x86_64)",
+      "includePath": [
+        "${workspaceFolder}/HostFlashApp/PcTool/RS232",
+        "${workspaceFolder}/HostFlashApp/PcTool/Inc",
+        "${workspaceFolder}/HostFlashApp/PcTool/**"
+      ],
+      "defines": [],
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "c99",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "linux-gcc-x64",
+      "compilerArgs": [
+        "-m64",
+        "-g",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-Wno-unused-parameter",
+        "-Wno-missing-field-initializers"
       ]
     }
   ],

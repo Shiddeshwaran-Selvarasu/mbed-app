@@ -57,6 +57,7 @@ dkms.conf
 ## build files
 Bootloader/build
 App/build
+HostFlashApp/PcTool/build
 flash_image.bin
 
 # test play ground

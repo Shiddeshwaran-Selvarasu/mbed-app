@@ -16,10 +16,10 @@ HAL_StatusTypeDef erase_flash(uint32_t bank, uint32_t sector, uint32_t num_secto
   EraseInitStruct.Banks = bank;
 
   // Unlock the FLASH memory
-  if (HAL_FLASH_Unlock() != HAL_OK)
-  {
+  status = HAL_FLASH_Unlock();
+  if (status != HAL_OK) {
     LOG_ERROR("Failed to unlock flash memory\r\n");
-    return HAL_ERROR;
+    return status;
   }
 
   //Check if the FLASH_FLAG_BSY.
@@ -36,18 +36,20 @@ HAL_StatusTypeDef erase_flash(uint32_t bank, uint32_t sector, uint32_t num_secto
     return HAL_ERROR;
   }
 
-  if (HAL_FLASHEx_Erase(&EraseInitStruct, &SectorError) != HAL_OK)
+  status = HAL_FLASHEx_Erase(&EraseInitStruct, &SectorError);
+  if (status != HAL_OK)
   {
     LOG_ERROR("Failed to erase flash sector\r\n");
     HAL_FLASH_Lock();
-    return HAL_ERROR;
+    return status;
   }
 
   // Lock the FLASH memory
-  if (HAL_FLASH_Lock() != HAL_OK)
+  status = HAL_FLASH_Lock();
+  if (status != HAL_OK)
   {
     LOG_ERROR("Failed to lock flash memory\r\n");
-    return HAL_ERROR;
+    return status;
   }
   
   return HAL_OK;
