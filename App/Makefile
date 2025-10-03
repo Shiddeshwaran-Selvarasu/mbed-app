@@ -10,7 +10,6 @@ OBJ_DIR   = $(BUILD_DIR)/obj
 CC      = arm-none-eabi-gcc
 OBJCOPY = arm-none-eabi-objcopy
 SIZE    = arm-none-eabi-size
-SREC_CAT = srec_cat
 
 # =====================
 # Source Files
