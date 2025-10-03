@@ -10,6 +10,7 @@ OBJ_DIR   = $(BUILD_DIR)/obj
 CC      = arm-none-eabi-gcc
 OBJCOPY = arm-none-eabi-objcopy
 SIZE    = arm-none-eabi-size
+SREC_CAT = srec_cat
 
 # =====================
 # Source Files
@@ -41,13 +42,13 @@ CFLAGS   = -mcpu=cortex-m7 -mthumb -O2 -g -Wall -ffunction-sections -fdata-secti
 # =====================
 # Output Files
 # =====================
-ELF      = $(BUILD_DIR)/bootloader.elf
-BIN      = $(BUILD_DIR)/bootloader.bin
+ELF      = $(BUILD_DIR)/app.elf
+BIN      = $(BUILD_DIR)/app.bin
 
 # =====================
 # Size Limits
 # =====================
-MAX_SIZE = 262144  # 256 KB in bytes
+MAX_SIZE = 1048576  # 1 MB in bytes
 
 # =====================
 # Linker Flags
@@ -58,7 +59,6 @@ LDFLAGS = -TSTM32H755ZITX.ld
 # Default Target
 # =====================
 all: $(BIN)
-	$(SIZE) $(ELF)
 	@echo "Checking binary size..."
 	@BIN_SIZE=$$(stat -c%s $(BIN)); \
 	if [ $$BIN_SIZE -gt $(MAX_SIZE) ]; then \
@@ -68,7 +68,6 @@ all: $(BIN)
 	else \
 		echo "Binary size check passed: $$BIN_SIZE bytes ($$(($(MAX_SIZE) - $$BIN_SIZE)) bytes remaining)"; \
 	fi
-
 # =====================
 # vpath for source files
 # =====================
@@ -99,7 +98,7 @@ $(ELF): $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
 
 # Convert ELF to BIN
-$(BIN): $(ELF)
+$(BIN): $(ELF) | $(BUILD_DIR)
 	$(OBJCOPY) -O binary $< $@
 
 # =====================
