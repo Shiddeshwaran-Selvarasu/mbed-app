@@ -134,7 +134,7 @@ int main(void)
 
   /*********************** Initiate Jump to application - START ************************/
 
-  if (etx_config->is_app_bootable) {
+  if (etx_config->is_app_flashed) {
     uint32_t app_crc = get_application_crc();
     if (app_crc < 0) {
       LOG_ERROR("Failed to get application CRC. Error code: %d\r\n", app_crc);
@@ -144,6 +144,7 @@ int main(void)
       LOG_INFO("Verifying application CRC...\r\n");
       int verify_status = verify_application_crc((uint32_t)app_crc);
       if (verify_status == 0) {
+        etx_config->is_app_bootable = true;
         LOG_INFO("CRC verified successfully...\r\n");
         LOG_INFO("Loading application...\r\n");
         goto_application();
@@ -227,7 +228,7 @@ static void goto_application( void )
 }
 
 /**
- * @brief  Get the stored CRC value from application data
+ * @brief  Get the stored CRC value from configuration data
  * @param  None
  * @retval CRC value (32-bit integer) or negative values on error
  */
@@ -258,7 +259,7 @@ static uint32_t verify_application_crc(uint32_t crc_value)
   }
 
   // Calculate CRC over application data using STM32 hardware CRC peripheral
-  uint32_t data_size_bytes = APPLICATION_MAX_SIZE - 4; 
+  uint32_t data_size_bytes = etx_config->app_size; 
   
   uint32_t computed_crc = compute_crc32(&hcrc, (uint32_t *)APPLICATION_ADDRESS, data_size_bytes);
 
@@ -361,24 +362,19 @@ void SystemClock_Config(void)
   */
 static void MX_USART2_UART_Init(void)
 {
-  /* USART2 Port Clock Enable */
-  __HAL_RCC_USART2_CLK_ENABLE();
-
   huart2.Instance = USART2;
   
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 921600;  // Increased from default for faster transfer
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
   huart2.Init.Mode = UART_MODE_TX_RX;
   huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_8;  // Reduce oversampling for higher speeds
   huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
   huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
   if (HAL_UART_Init(&huart2) != HAL_OK) Error_Handler();
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK) Error_Handler();
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK) Error_Handler();
-  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK) Error_Handler();
 }
 
 /**
@@ -502,10 +498,10 @@ static void MX_GPIO_Init(void)
 }
 
 /**
-  * @brief GPIO Deinitialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Deinitialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_DeInit(void)
 {
   /* GPIO Ports Clock Disable */

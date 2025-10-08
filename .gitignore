@@ -59,6 +59,7 @@ Bootloader/build
 App/build
 HostFlashApp/PcTool/build
 flash_image.bin
+build
 
 # test play ground
 testing 

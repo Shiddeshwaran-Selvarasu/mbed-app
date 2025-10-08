@@ -35,6 +35,7 @@ static HAL_StatusTypeDef etx_rx_data(uint8_t *buffer);
 static HAL_StatusTypeDef etx_tx_rsp(ETX_DL_RSPF_ *buffer);
 static HAL_StatusTypeDef etx_rx_rsp(ETX_DL_RSPF_ *buffer);
 
+// Flash operation prototypes
 static HAL_StatusTypeDef flash_application_data(uint32_t address, uint32_t *data, uint32_t length);
 static HAL_StatusTypeDef flash_erase_application();
 
@@ -61,6 +62,7 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
   expected_crc = 0;
 
   LOG_INFO("Waiting ETX APP download to start [State: IDLE]...\r\n");
+
   do {
     if (nack_sent_count >= max_nack_retries) {
       LOG_ERROR("Maximum NACK retries reached. Aborting download...\r\n");
@@ -78,112 +80,120 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
 
     ETX_DL_FRAME_ *received_frame = (ETX_DL_FRAME_ *)rx_buffer;
 
-    switch (dl_state)
-    {
-    case ETX_DL_STATE_IDLE:
-      if (received_frame->packet_type == ETX_DL_FRAME_TYPE_CMD &&
-          received_frame->payload_len == 1 &&
-          received_frame->payload[0] == ETX_DL_CMD_START) {
-        LOG_INFO("Received DL start command. Transitioning to HEADER state...\r\n");
-        dl_state = ETX_DL_STATE_HEADER;
-        etx_send_response(ETX_DL_RSP_ACK);
-      } else {
-        etx_send_response(ETX_DL_RSP_NACK);
-      }
-      break;
-    
-    case ETX_DL_STATE_HEADER:
-      if (received_frame->packet_type == ETX_DL_FRAME_TYPE_HEADER &&
-          received_frame->payload_len == 8) {
-        total_data_size = (received_frame->payload[0] << 24) |
-                          (received_frame->payload[1] << 16) |
-                          (received_frame->payload[2] << 8)  |
-                          (received_frame->payload[3]);
-        expected_crc = (received_frame->payload[4] << 24) |
-                       (received_frame->payload[5] << 16) |
-                       (received_frame->payload[6] << 8)  |
-                       (received_frame->payload[7]);
-        
-        LOG_INFO("Received header: Total Size = %lu bytes, Expected CRC = 0x%08lX\r\n", total_data_size, expected_crc);
+    switch (dl_state) {
+      case ETX_DL_STATE_IDLE:
+        if (received_frame->packet_type == ETX_DL_FRAME_TYPE_CMD &&
+            received_frame->payload_len == 1 &&
+            received_frame->payload[0] == ETX_DL_CMD_START) {
+          LOG_INFO("Received DL start command. Transitioning to HEADER state...\r\n");
+          dl_state = ETX_DL_STATE_HEADER;
+          etx_send_response(ETX_DL_RSP_ACK);
+        } else {
+          etx_send_response(ETX_DL_RSP_NACK);
+        }
+        break;
+      
+      case ETX_DL_STATE_HEADER:
+        if (received_frame->packet_type == ETX_DL_FRAME_TYPE_HEADER &&
+            received_frame->payload_len == 8) {
+          total_data_size = (received_frame->payload[0] << 24) |
+                            (received_frame->payload[1] << 16) |
+                            (received_frame->payload[2] << 8)  |
+                            (received_frame->payload[3]);
+          expected_crc = (received_frame->payload[4] << 24) |
+                        (received_frame->payload[5] << 16) |
+                        (received_frame->payload[6] << 8)  |
+                        (received_frame->payload[7]);
+          
+          LOG_INFO("Received header: Total Size = %lu bytes, Expected CRC = 0x%08lX\r\n", total_data_size, expected_crc);
 
-        total_data_fragments = (total_data_size / ETX_FRAME_DATA_MAX_SIZE) + (total_data_size % ETX_FRAME_DATA_MAX_SIZE != 0);
-        received_data_fragments = 0;
+          total_data_fragments = (total_data_size / ETX_FRAME_DATA_MAX_SIZE) + (total_data_size % ETX_FRAME_DATA_MAX_SIZE != 0);
+          received_data_fragments = 0;
 
-        etx_send_response(ETX_DL_RSP_ACK);
-        LOG_INFO("Transitioning to DATA state...\r\n");
-        dl_state = ETX_DL_STATE_DATA;
-      } else {
-        etx_send_response(ETX_DL_RSP_NACK);
-      }
-      break;
+          etx_send_response(ETX_DL_RSP_ACK);
+          LOG_INFO("Transitioning to DATA state...\r\n");
+          dl_state = ETX_DL_STATE_DATA;
+        } else {
+          etx_send_response(ETX_DL_RSP_NACK);
+        }
+        break;
 
-    case ETX_DL_STATE_DATA:
-      if (received_frame->packet_type == ETX_DL_FRAME_TYPE_DATA && received_frame->payload_len > 0) {
+      case ETX_DL_STATE_DATA:
+        if (received_frame->packet_type == ETX_DL_FRAME_TYPE_DATA && received_frame->payload_len > 0) {
 
-        if (!is_flash_write_started) {
-          // Erase the application area before starting to flash
-          if (flash_erase_application() != HAL_OK) {
-            LOG_ERROR("Failed to erase application area\r\n");
+          if (!is_flash_write_started) {
+            // Erase the application area before starting to flash
+            if (flash_erase_application() != HAL_OK) {
+              LOG_ERROR("Failed to erase application area\r\n");
+              dl_state = ETX_DL_STATE_FAILED;
+              break;
+            }
+            is_flash_write_started = true;
+            LOG_INFO("Application area erased. Starting to flash data...\r\n");
+          }
+          
+          HAL_StatusTypeDef status;
+
+          // Flash the received data
+          status = flash_application_data((APPLICATION_ADDRESS + (received_data_fragments * ETX_FRAME_DATA_MAX_SIZE)),
+                                    (uint32_t *)received_frame->payload,
+                                    (uint32_t)received_frame->payload_len);
+          if (status != HAL_OK) {
+            LOG_ERROR("Failed to flash data at address 0x%08lX\r\n", APPLICATION_ADDRESS + (received_data_fragments * ETX_FRAME_DATA_MAX_SIZE));
             dl_state = ETX_DL_STATE_FAILED;
             break;
           }
-          is_flash_write_started = true;
-          LOG_INFO("Application area erased. Starting to flash data...\r\n");
+
+          received_data_fragments++;
+          LOG_INFO("Received and flashed fragment %u/%u\r\n", received_data_fragments, total_data_fragments);
+
+          if (received_data_fragments >= total_data_fragments) {
+            dl_state = ETX_DL_STATE_DATA_COMPLETE;
+            LOG_INFO("All data fragments received. Transitioning to Data Complete state...\r\n");
+          }
+          etx_send_response(ETX_DL_RSP_ACK);
+        } else {
+          etx_send_response(ETX_DL_RSP_NACK);
         }
-        
-        HAL_StatusTypeDef status;
+        break;
 
-        // Flash the received data
-        status = flash_application_data((APPLICATION_ADDRESS + (received_data_fragments * ETX_FRAME_DATA_MAX_SIZE)),
-                                   (uint32_t *)received_frame->payload,
-                                   (uint32_t)received_frame->payload_len);
-        if (status != HAL_OK) {
-          LOG_ERROR("Failed to flash data at address 0x%08lX\r\n", APPLICATION_ADDRESS + (received_data_fragments * ETX_FRAME_DATA_MAX_SIZE));
-          dl_state = ETX_DL_STATE_FAILED;
-          break;
-        }
-
-        received_data_fragments++;
-        LOG_INFO("Received and flashed fragment %u/%u\r\n", received_data_fragments, total_data_fragments);
-
-        if (received_data_fragments >= total_data_fragments) {
+      case ETX_DL_STATE_DATA_COMPLETE:
+        if (received_frame->packet_type == ETX_DL_FRAME_TYPE_CMD &&
+                    received_frame->payload_len == 1 &&
+                    received_frame->payload[0] == ETX_DL_CMD_END) {
+          LOG_INFO("Received DL end command. Transitioning to SUCCESS state...\r\n");
           is_data_transfer_complete = true;
           dl_state = ETX_DL_STATE_SUCCESS;
-          LOG_INFO("All data fragments received. Transitioning to Success state...\r\n");
+          etx_send_response(ETX_DL_RSP_ACK);
+        } else {
+          etx_send_response(ETX_DL_RSP_NACK);
         }
-        etx_send_response(ETX_DL_RSP_ACK);
-      } else if (received_frame->packet_type == ETX_DL_FRAME_TYPE_CMD &&
-                  received_frame->payload_len == 1 &&
-                  received_frame->payload[0] == ETX_DL_CMD_END) {
-        LOG_INFO("Received DL end command. Transitioning to CRC state...\r\n");
-        dl_state = ETX_DL_STATE_SUCCESS;
-        etx_send_response(ETX_DL_RSP_ACK);
-      } else {
-        etx_send_response(ETX_DL_RSP_NACK);
-      }
-      break;
+        break;
 
-    case ETX_DL_STATE_FAILED:
-      if (is_flash_write_started) {
+      case ETX_DL_STATE_FAILED:
+        if (is_flash_write_started) {
+          config->is_app_bootable = false;
+          config->is_app_flashed = false;
+          config->reboot_reason = ETX_APP_FAILED;
+        }
+
+        LOG_INFO("Download failed. Exiting...\r\n");
+        return ETX_DL_EX_ERR;
+
+      case ETX_DL_STATE_SUCCESS:
         config->is_app_bootable = false;
-        config->is_app_flashed = false;
-        config->reboot_reason = ETX_APP_FAILED;
-      }
+        config->is_app_flashed = true;
+        config->reboot_reason = ETX_NORMAL_BOOT;
+        config->app_crc = expected_crc;
+        config->app_size = total_data_size;
+        config_save(config);
+        LOG_INFO("Download successful. Exiting...\r\n");
+        return ETX_DL_EX_OK;
 
-      LOG_INFO("Download failed. Exiting...\r\n");
-      return ETX_DL_EX_ERR;
-
-    case ETX_DL_STATE_SUCCESS:
-      config->is_app_bootable = false;
-      config->is_app_flashed = true;
-      config->reboot_reason = ETX_NORMAL_BOOT;
-      LOG_INFO("Download successful. Exiting...\r\n");
-      return ETX_DL_EX_OK;
-
-    default:
-      dl_state = ETX_DL_STATE_FAILED;
-      LOG_ERROR("Unknown state encountered. Aborting...\r\n");
-      break;
+      default:
+        dl_state = ETX_DL_STATE_FAILED;
+        LOG_ERROR("Unknown state encountered. Aborting...\r\n");
+        break;
     }
 
   } while (true);
