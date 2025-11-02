@@ -39,6 +39,7 @@ typedef struct
   bool               is_app_flashed;              // Is application flashed
   uint32_t           reserved[10];                // Reserved for future use
   uint32_t           app_crc;                     // Application CRC
+  uint32_t           app_size;                     // Application Size
   uint32_t           config_valid_marker;         // Configuration valid marker always 0xDEADBEEF
   uint32_t           config_crc;                  // Configuration CRC
 }__attribute__((packed)) ETX_CONFIG_;

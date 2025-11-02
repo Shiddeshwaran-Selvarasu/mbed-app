@@ -3,6 +3,9 @@
 # =====================
 BUILD_DIR = build
 OBJ_DIR   = $(BUILD_DIR)/obj
+# Repo root (one level up) and its build directory for versioned artifacts
+REPO_ROOT = $(abspath $(CURDIR)/..)
+ROOT_BUILD_DIR = $(REPO_ROOT)/build
 
 # =====================
 # Toolchain
@@ -101,6 +104,22 @@ $(ELF): $(OBJS)
 # Convert ELF to BIN
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
+	@echo "Extracting bootloader version..."
+	@VERSION_STR=$$(strings $@ | grep -m1 "Bootloader Version" || true); \
+	if [ -z "$$VERSION_STR" ]; then \
+	  echo "Warning: Version string not found. Using 'unknown'."; \
+	  VERSION=unknown; \
+	else \
+	  VERSION=$$(echo $$VERSION_STR | sed -E 's/.*Version (v[0-9]+\.[0-9]+\.[0-9]+).*/\1/'); \
+	  if ! echo $$VERSION | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+'; then \
+	    echo "Warning: Could not parse semantic version. Using 'unknown'."; \
+	    VERSION=unknown; \
+	  fi; \
+	fi; \
+	echo "Detected version: $$VERSION"; \
+	mkdir -p $(ROOT_BUILD_DIR); \
+	cp $@ $(ROOT_BUILD_DIR)/Bootloader_$$VERSION.bin; \
+	echo "Copied versioned binary to $(ROOT_BUILD_DIR)/Bootloader_$$VERSION.bin"
 
 # =====================
 # Clean Rule

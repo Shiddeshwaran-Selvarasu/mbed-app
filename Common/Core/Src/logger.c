@@ -26,6 +26,12 @@ void logger(logLevel_t log_level, const char* file, int line, const char *format
         return; /* Ignore NONE or invalid */
     }
 
+    // /* Print date and time */
+    // char time_buf[32];
+    // time_t now = time(NULL);
+    // struct tm *tm_info = localtime(&now);
+    // strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
+
     if (log_level == LOG_LEVEL_ERROR || log_level == LOG_LEVEL_WARN) {
         printf("[%s] %s:%d: ", LOG_TAGS[log_level], file, line);
     } else {

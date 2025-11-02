@@ -31,6 +31,7 @@ void config_load_defaults(ETX_CONFIG_ *etx_config)
   etx_config->is_app_flashed = false;
 
   etx_config->app_crc = 0; // Application CRC set to 0
+  etx_config->app_size = 0; // Application Size set to 0
 
   // Reserved space
   for (int i = 0; i < 10; i++) {

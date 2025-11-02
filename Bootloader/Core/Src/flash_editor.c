@@ -15,6 +15,8 @@ HAL_StatusTypeDef erase_flash(uint32_t bank, uint32_t sector, uint32_t num_secto
   EraseInitStruct.NbSectors = num_sectors;
   EraseInitStruct.Banks = bank;
 
+  LOG_INFO("Erasing flash sectors: Bank %lu, Sector %lu, Number of Sectors %lu\r\n", bank, sector, num_sectors);
+
   // Unlock the FLASH memory
   status = HAL_FLASH_Unlock();
   if (status != HAL_OK) {
@@ -51,6 +53,8 @@ HAL_StatusTypeDef erase_flash(uint32_t bank, uint32_t sector, uint32_t num_secto
     LOG_ERROR("Failed to lock flash memory\r\n");
     return status;
   }
+
+  LOG_INFO("Flash sector erased\r\n");
   
   return HAL_OK;
 }
@@ -66,6 +70,8 @@ HAL_StatusTypeDef write_flash(uint32_t address, uint32_t *data, uint32_t length,
     LOG_ERROR("Failed to unlock flash memory\r\n");
     return status;
   }
+
+  LOG_INFO("Writing data[size: %lu] to flash memory...\r\n", length);
 
   // Program the configuration data to FLASH memory
   for (uint32_t i = 0; i < length; i += 32)

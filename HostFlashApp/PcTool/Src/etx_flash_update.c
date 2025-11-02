@@ -1,4 +1,3 @@
-
 /**
   ******************************************************************************
   * @file    etx_flash_update.c
@@ -7,6 +6,17 @@
   ******************************************************************************/
 
 #include "etx_flash_update.h"
+
+/* Host Flash Version Info start */
+#define Major_VERSION  2
+#define Minor_VERSION  0
+#define Patch_VERSION  5
+
+#define __STRINGIFY(x) #x
+#define _STRINGIFY(x) __STRINGIFY(x)
+#define HF_VERSION   "v"_STRINGIFY(Major_VERSION)"."_STRINGIFY(Minor_VERSION)"."_STRINGIFY(Patch_VERSION)
+#define HF_VER_STRING "Host Flash Version " HF_VERSION " stable release"
+/* Host Flash Version Info end */
 
 uint8_t DATA_BUF[ETX_FRAME_PACKET_MAX_SIZE];
 uint8_t RSP_BUF[ETX_RSPF_PACKET_SIZE];
@@ -141,7 +151,7 @@ ETX_DL_FRAME_EX_ etx_tx_data(int comport_number, ETX_DL_FRAME_ *buffer)
       printf("Send Err: %d\n", buffer->packet_type);
       return ETX_DL_FRAME_EX_ERR;
     }
-    delay(200000);
+    delay(1500);
   }
 
   // send (CRC + EOF)
@@ -151,7 +161,7 @@ ETX_DL_FRAME_EX_ etx_tx_data(int comport_number, ETX_DL_FRAME_ *buffer)
       printf("Send Err: %d\n", buffer->packet_type);
       return ETX_DL_FRAME_EX_ERR;
     }
-    delay(200000);
+    delay(1500);
   }
 
   return ETX_DL_FRAME_EX_OK;
@@ -486,7 +496,7 @@ int main(int argc, char *argv[])
   static int comport_number = -1;
   char bin_name[1024];
 
-  int bdrate  = 115200;       /* 115200 baud */
+  int bdrate  = 921600;       /* Increased baud rate for faster transfer */
   char mode[] = {'8','N','1',0}; /* *-bits, No parity, 1 stop bit */
   
   int exit_code = 0;
@@ -504,6 +514,8 @@ int main(int argc, char *argv[])
       exit_code = -1;
       break;
     }
+
+    printf("%s\r\n", HF_VER_STRING);
 
     //get the COM port
     comport = argv[1];
@@ -558,7 +570,17 @@ int main(int argc, char *argv[])
           printf("STM32 did not respond to data message...\r\n");
           dl_state = ETX_DL_STATE_FAILED;
         } else {
-          printf("STM32 Acknowledged the data message. Sending Data now...\r\n");
+          printf("STM32 Acknowledged the data message. Sending END command now...\r\n");
+          dl_state = ETX_DL_STATE_DATA_COMPLETE;
+        }
+        break;
+      
+      case ETX_DL_STATE_DATA_COMPLETE:
+        if(etx_send_end_cmd(comport_number) != ETX_DL_EX_OK){
+          printf("STM32 did not respond to end message...\r\n");
+          dl_state = ETX_DL_STATE_FAILED;
+        } else {
+          printf("STM32 Acknowledged the end message...\r\n");
           dl_state = ETX_DL_STATE_SUCCESS;
         }
         break;
@@ -568,7 +590,7 @@ int main(int argc, char *argv[])
         return -1;
 
       case ETX_DL_STATE_SUCCESS:
-        printf("ETX DL Success...");
+        printf("ETX DL Success...\r\n");
         return 0;
 
       default:

@@ -23,8 +23,8 @@ extern "C" {
 #define ETX_FRAME_ACK  0x00U    // ACK
 #define ETX_FRAME_NACK 0x01U    // NACK
 
-#define ETX_FRAME_DATA_MAX_SIZE ( 1024 )  //Maximum data Size
-#define ETX_FRAME_DATA_OVERHEAD (    9 )  //data overhead
+#define ETX_FRAME_DATA_MAX_SIZE ( 10240 )  //Maximum data Size
+#define ETX_FRAME_DATA_OVERHEAD (     9 )  //data overhead
 #define ETX_FRAME_PACKET_MAX_SIZE sizeof(ETX_DL_FRAME_) // Maximum packet size
 #define ETX_RSPF_PACKET_SIZE sizeof(ETX_DL_RSPF_) // Maximum packet size
 #define ETX_DL_MAX_FW_SIZE ( 1024 * 1024 ) // 1MB
@@ -54,11 +54,12 @@ typedef enum
  */
 typedef enum
 {
-  ETX_DL_STATE_IDLE    = 0,
-  ETX_DL_STATE_HEADER  = 1,
-  ETX_DL_STATE_DATA    = 2,
-  ETX_DL_STATE_FAILED  = 3,
-  ETX_DL_STATE_SUCCESS = 4,
+  ETX_DL_STATE_IDLE             = 0,
+  ETX_DL_STATE_HEADER           = 1,
+  ETX_DL_STATE_DATA             = 2,
+  ETX_DL_STATE_DATA_COMPLETE    = 3,
+  ETX_DL_STATE_FAILED           = 4,
+  ETX_DL_STATE_SUCCESS          = 5,
 }ETX_DL_STATE_;
 
 /**
