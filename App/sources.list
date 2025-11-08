@@ -25,3 +25,11 @@ Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_tim_ex.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_uart.c
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_uart_ex.c
+FreeRTOS/tasks.c
+FreeRTOS/queue.c
+FreeRTOS/list.c
+FreeRTOS/timers.c
+FreeRTOS/event_groups.c
+FreeRTOS/stream_buffer.c
+FreeRTOS/port.c
+FreeRTOS/heap_4.c

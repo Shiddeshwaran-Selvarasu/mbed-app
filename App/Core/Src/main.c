@@ -1,6 +1,9 @@
+#include <stdio.h>
+
 #include "main.h"
 #include "logger.h"
-#include "stdio.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 /* Application Version Info start */
 #define Major_VERSION  1
@@ -13,7 +16,6 @@
 #define APP_VER_STRING "Application Version " APP_VERSION " stable release"
 /* Application Version Info end */
 
-UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 void SystemClock_Config(void);
@@ -24,7 +26,11 @@ static void MX_USART3_UART_Init(void);
 static void MX_GPIO_DeInit(void);
 static void MX_USART3_UART_DeInit(void);
 
+static void vTaskApplicationMain(void *pvParameters);
+
 static void shutdown( void );
+
+extern uint32_t g_pfnVectors; // Vector table start address
 
 /**
   * @brief  The Application entry point.
@@ -32,9 +38,20 @@ static void shutdown( void );
   */
 int main(void)
 {
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  /* Relocate the vector table */
+  SCB->VTOR = (uint32_t)&g_pfnVectors;
+
+  /* Initialize the HAL Library */
   HAL_Init();
+
+  /* Enable interrupts */
+  __enable_irq();
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   SystemClock_Config();
+
+  // set the NVIC priority grouping
+  NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
@@ -47,6 +64,29 @@ int main(void)
   HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_RESET);
 
+  // 6. Create your FreeRTOS tasks
+  xTaskCreate(vTaskApplicationMain, "LED_Task", 128, NULL, 1, NULL);
+
+  // 7. Start the scheduler
+  // FreeRTOS will take over interrupt management from here.
+  vTaskStartScheduler();
+
+  /* ... Should never reach here ... */
+  /* RTOS failure loop */
+  while (1)
+  {
+    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+    HAL_Delay(5000);
+  }
+}
+
+/**
+  * @brief  Function implementing the Main thread.
+  * @param  pvParameters not used
+  * @retval None
+  */
+static void vTaskApplicationMain(void *pvParameters)
+{
   /* Application startup sequence */
   HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
   HAL_Delay(1000);
@@ -64,12 +104,14 @@ int main(void)
   HAL_Delay(1000);
   
   HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
-  
-  /* Main application loop */
+
   while (1)
   {
-    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-    HAL_Delay(5000);
+      // Your old blinky logic
+      HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+
+      // USE THE RTOS DELAY, NOT HAL_Delay()
+      vTaskDelay(pdMS_TO_TICKS(500)); // Delay for 500 milliseconds
   }
 }
 
@@ -261,4 +303,50 @@ void Error_Handler(void)
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1) {}
+}
+
+/* 
+  =============================================
+  |                 FreeRTOS                  |
+  =============================================
+*/
+
+/**
+  * @brief  FreeRTOS assertion failed
+  */
+void vAssertCalled( const char * pcFile, uint32_t ulLine )
+{
+  /* * An assertion has failed. You can find out which one by
+   * checking the pcFile and ulLine parameters.
+   * * Loop indefinitely so you can catch this in a debugger.
+   */
+  taskDISABLE_INTERRUPTS();
+  for( ;; );
+}
+
+/**
+  * @brief  FreeRTOS stack overflow hook
+  */
+void vApplicationStackOverflowHook( TaskHandle_t xTask, char *pcTaskName )
+{
+    /*
+     * Run time stack overflow checking is enabled.
+     * If you are here, a task has blown its stack.
+     * Loop forever so a debugger can attach and find it.
+     */
+    (void) xTask;
+    (void) pcTaskName;
+    taskDISABLE_INTERRUPTS();
+    for( ;; );
+}
+
+/**
+  * @brief  FreeRTOS Tick Hook function
+  * This is called from inside the FreeRTOS Systick handler (port.c)
+  */
+void vApplicationTickHook( void )
+{
+    /* This function is called from inside the FreeRTOS_Tick_Handler */
+    /* and must be used to call HAL_IncTick() */
+    HAL_IncTick();
 }
