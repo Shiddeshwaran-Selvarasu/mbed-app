@@ -24,7 +24,7 @@ extern uint32_t SystemCoreClock;
 #define configUSE_PREEMPTION                    1
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 0
 #define configUSE_IDLE_HOOK                     0
-#define configUSE_TICK_HOOK                     0
+#define configUSE_TICK_HOOK                     1 /* Enable the tick hook */
 #define configTICK_RATE_HZ                      ( ( TickType_t ) 1000 ) /* 1ms tick */
 #define configCPU_CLOCK_HZ                      ( SystemCoreClock )
 #define configMAX_PRIORITIES                    ( 5 ) /* Keep this low, 5-7 is typical */
@@ -107,7 +107,6 @@ extern uint32_t SystemCoreClock;
 #define configTIMER_TASK_PRIORITY               ( configMAX_PRIORITIES - 1 )
 #define configTIMER_QUEUE_LENGTH                10
 #define configTIMER_TASK_STACK_DEPTH            ( configMINIMAL_STACK_SIZE * 2 )
-#define configUSE_TICK_HOOK                     1 /* Enable the tick hook */
 
 #define configUSE_MUTEXES                       1
 #define configUSE_RECURSIVE_MUTEXES             1

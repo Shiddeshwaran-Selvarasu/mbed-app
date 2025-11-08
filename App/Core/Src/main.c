@@ -27,6 +27,7 @@ static void MX_GPIO_DeInit(void);
 static void MX_USART3_UART_DeInit(void);
 
 static void vTaskApplicationMain(void *pvParameters);
+static void vTaskLog(void *pvParameters);
 
 static void shutdown( void );
 
@@ -64,11 +65,11 @@ int main(void)
   HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_RESET);
 
-  // 6. Create your FreeRTOS tasks
+  // Create FreeRTOS tasks
   xTaskCreate(vTaskApplicationMain, "LED_Task", 128, NULL, 1, NULL);
+  xTaskCreate(vTaskLog, "LOG_Task", 128, NULL, 1, NULL);
 
-  // 7. Start the scheduler
-  // FreeRTOS will take over interrupt management from here.
+  // Start the FreeRTOS scheduler
   vTaskStartScheduler();
 
   /* ... Should never reach here ... */
@@ -89,32 +90,44 @@ static void vTaskApplicationMain(void *pvParameters)
 {
   /* Application startup sequence */
   HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-  HAL_Delay(1000);
+  vTaskDelay(pdMS_TO_TICKS(1000));
   
   HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-  HAL_Delay(1000);
+  vTaskDelay(pdMS_TO_TICKS(1000));
   
   HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-  HAL_Delay(1000);
+  vTaskDelay(pdMS_TO_TICKS(1000));
   
   HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-  HAL_Delay(1000);
+  vTaskDelay(pdMS_TO_TICKS(1000));
   
   HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
-  HAL_Delay(1000);
+  vTaskDelay(pdMS_TO_TICKS(1000));
   
   HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
+  vTaskDelay(pdMS_TO_TICKS(1000));
 
   while (1)
   {
-      // Your old blinky logic
-      HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-
-      // USE THE RTOS DELAY, NOT HAL_Delay()
-      vTaskDelay(pdMS_TO_TICKS(500)); // Delay for 500 milliseconds
+    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+    vTaskDelay(pdMS_TO_TICKS(500)); // Delay for 500 milliseconds
   }
 }
 
+static void vTaskLog(void *pvParameters)
+{
+  const char *msg = "Logging task is running...\r\n";
+  while (1)
+  {
+    LOG_INFO("%s", msg);
+    vTaskDelay(pdMS_TO_TICKS(2000)); // Log every 2 seconds
+  }
+}
+
+/**
+  * @brief  Perform application shutdown sequence
+  * @retval None
+  */
 static void shutdown( void )
 {
   /* Reset the peripherals */
