@@ -35,6 +35,8 @@ INCLUDES = -ICore/Inc \
 		   -IDrivers/CMSIS/Include \
 		   -IDrivers/CMSIS/Device/ST \
 		   -IDrivers/CMSIS/Device/ST/STM32H7xx/Include \
+		   -IFreeRTOS/portable/GCC/ARM_CM7/r0p1 \
+		   -IFreeRTOS/portable/MemMang \
 		   -IFreeRTOS/include
 
 # =====================
@@ -74,7 +76,7 @@ all: $(BIN)
 # =====================
 # vpath for source files
 # =====================
-vpath %.c Core/Src Common/Src Drivers/STM32H7xx_HAL_Driver/Src Drivers/CMSIS/Device/ST/STM32H7xx/Source Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates FreeRTOS
+vpath %.c Core/Src Common/Src Drivers/STM32H7xx_HAL_Driver/Src Drivers/CMSIS/Device/ST/STM32H7xx/Source Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates FreeRTOS FreeRTOS/portable/GCC/ARM_CM7/r0p1 FreeRTOS/portable/MemMang
 vpath %.s Core/Startup
 
 # =====================

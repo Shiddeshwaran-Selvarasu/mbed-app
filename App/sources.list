@@ -31,5 +31,5 @@ FreeRTOS/list.c
 FreeRTOS/timers.c
 FreeRTOS/event_groups.c
 FreeRTOS/stream_buffer.c
-FreeRTOS/port.c
-FreeRTOS/heap_4.c
+FreeRTOS/protable/GCC/ARM_CM7/r0p1/port.c
+FreeRTOS/protable/MenMang/heap_4.c
