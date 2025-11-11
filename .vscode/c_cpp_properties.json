@@ -60,6 +60,8 @@
         "${workspaceFolder}/App/Drivers/CMSIS/Device/ST",
         "${workspaceFolder}/App/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
         "${workspaceFolder}/App/FreeRTOS/include",
+        "${workspaceFolder}/App/FreeRTOS/portable/GCC/ARM_CM7/r0p1",
+        "${workspaceFolder}/App/FreeRTOS/portable/MemMang",
         "${workspaceFolder}/App/**"
       ],
       "defines": [
