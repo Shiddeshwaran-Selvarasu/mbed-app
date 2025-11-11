@@ -49,15 +49,16 @@ void UsageFault_Handler(void)
   */
 void DebugMon_Handler(void) {}
 
-// this function is replace in FreeRTOS by xPortSysTickHandler
-// /**
-//   * @brief This function handles System tick timer.
-//   */
-// void SysTick_Handler(void)
-// {
-//   // Call the HAL tick
-//   HAL_IncTick();
-// }
+/* 
+ * NOTE: SVC_Handler, PendSV_Handler, and SysTick_Handler are 
+ * defined in FreeRTOS/portable/GCC/ARM_CM7/r0p1/port.c
+ * and renamed via macros in FreeRTOSConfig.h:
+ *   vPortSVCHandler     -> SVC_Handler
+ *   xPortPendSVHandler  -> PendSV_Handler  
+ *   xPortSysTickHandler -> SysTick_Handler
+ * 
+ * Do NOT define them here - they are provided by FreeRTOS!
+ */
 
 /******************************************************************************/
 /* STM32H7xx Peripheral Interrupt Handlers                                    */

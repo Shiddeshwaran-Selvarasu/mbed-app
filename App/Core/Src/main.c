@@ -31,7 +31,8 @@ static void vTaskLog(void *pvParameters);
 
 static void shutdown( void );
 
-extern uint32_t g_pfnVectors; // Vector table start address
+/* Override FreeRTOS weak function to debug SysTick setup */
+void vPortSetupTimerInterrupt( void );
 
 /**
   * @brief  The Application entry point.
@@ -39,20 +40,15 @@ extern uint32_t g_pfnVectors; // Vector table start address
   */
 int main(void)
 {
-  /* Relocate the vector table */
-  SCB->VTOR = (uint32_t)&g_pfnVectors;
+  /* CRITICAL: Set NVIC priority grouping FIRST, before HAL_Init()
+   * FreeRTOS requires NVIC_PRIORITYGROUP_4 (4 bits for preemption priority) */
+  NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 
   /* Initialize the HAL Library */
   HAL_Init();
 
-  /* Enable interrupts */
-  __enable_irq();
-
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   SystemClock_Config();
-
-  // set the NVIC priority grouping
-  NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
@@ -65,11 +61,36 @@ int main(void)
   HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_RESET);
 
-  // Create FreeRTOS tasks
-  xTaskCreate(vTaskApplicationMain, "LED_Task", 128, NULL, 1, NULL);
-  xTaskCreate(vTaskLog, "LOG_Task", 128, NULL, 1, NULL);
+  LOG_INFO("Creating FreeRTOS tasks...\r\n");
 
-  // Start the FreeRTOS scheduler
+  // Create FreeRTOS tasks
+  BaseType_t xReturned;
+  xReturned = xTaskCreate(vTaskApplicationMain, "LED_Task", 256, NULL, 1, NULL);
+  if (xReturned != pdPASS) {
+    LOG_ERROR("Failed to create LED_Task\r\n");
+  } else {
+    LOG_INFO("LED_Task created successfully\r\n");
+  }
+  
+  xReturned = xTaskCreate(vTaskLog, "LOG_Task", 256, NULL, 1, NULL);
+  if (xReturned != pdPASS) {
+    LOG_ERROR("Failed to create LOG_Task\r\n");
+  } else {
+    LOG_INFO("LOG_Task created successfully\r\n");
+  }
+
+  LOG_INFO("Starting FreeRTOS scheduler...\r\n");
+  LOG_INFO("SystemCoreClock = %lu Hz\r\n", SystemCoreClock);
+
+  /* CRITICAL: Disable and reset SysTick before FreeRTOS takes over
+   * The bootloader may have left SysTick configured */
+  SysTick->CTRL = 0;
+  SysTick->LOAD = 0;
+  SysTick->VAL = 0;
+  
+  LOG_INFO("SysTick disabled, starting scheduler now...\r\n");
+
+  // Start the FreeRTOS scheduler (it will reconfigure SysTick)
   vTaskStartScheduler();
 
   /* ... Should never reach here ... */
@@ -88,29 +109,18 @@ int main(void)
   */
 static void vTaskApplicationMain(void *pvParameters)
 {
-  /* Application startup sequence */
-  HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  /* Immediate LED toggle to verify task is running */
+  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
   
-  HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-  vTaskDelay(pdMS_TO_TICKS(1000));
-  
-  HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-  vTaskDelay(pdMS_TO_TICKS(1000));
-  
-  HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-  vTaskDelay(pdMS_TO_TICKS(1000));
-  
-  HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
-  vTaskDelay(pdMS_TO_TICKS(1000));
-  
-  HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
-  vTaskDelay(pdMS_TO_TICKS(1000));
-
+  /* Simple infinite loop without delays to test if task runs at all */
+  volatile uint32_t counter = 0;
   while (1)
   {
-    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-    vTaskDelay(pdMS_TO_TICKS(500)); // Delay for 500 milliseconds
+    counter++;
+    if (counter > 1000000) {
+      HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+      counter = 0;
+    }
   }
 }
 
@@ -333,6 +343,7 @@ void vAssertCalled( const char * pcFile, uint32_t ulLine )
    * checking the pcFile and ulLine parameters.
    * * Loop indefinitely so you can catch this in a debugger.
    */
+  LOG_ERROR("FreeRTOS Assert Failed: %s:%lu\r\n", pcFile, ulLine);
   taskDISABLE_INTERRUPTS();
   for( ;; );
 }
@@ -348,7 +359,19 @@ void vApplicationStackOverflowHook( TaskHandle_t xTask, char *pcTaskName )
      * Loop forever so a debugger can attach and find it.
      */
     (void) xTask;
-    (void) pcTaskName;
+    LOG_ERROR("FreeRTOS Stack Overflow in task: %s\r\n", pcTaskName);
+    taskDISABLE_INTERRUPTS();
+    for( ;; );
+}
+
+/**
+  * @brief  FreeRTOS malloc failed hook
+  */
+void vApplicationMallocFailedHook( void )
+{
+    /* Called if a call to pvPortMalloc() fails because there is insufficient
+     * free memory available in the FreeRTOS heap. */
+    LOG_ERROR("FreeRTOS Malloc Failed - insufficient heap memory!\r\n");
     taskDISABLE_INTERRUPTS();
     for( ;; );
 }
@@ -357,9 +380,35 @@ void vApplicationStackOverflowHook( TaskHandle_t xTask, char *pcTaskName )
   * @brief  FreeRTOS Tick Hook function
   * This is called from inside the FreeRTOS Systick handler (port.c)
   */
+volatile uint32_t tickHookCounter = 0;
 void vApplicationTickHook( void )
 {
     /* This function is called from inside the FreeRTOS_Tick_Handler */
     /* and must be used to call HAL_IncTick() */
+    tickHookCounter++;
     HAL_IncTick();
+}
+
+/**
+  * @brief  Override FreeRTOS SysTick setup to add debugging
+  */
+void vPortSetupTimerInterrupt( void )
+{
+    extern uint32_t SystemCoreClock;
+    const uint32_t ulSysTickReloadValue = ( SystemCoreClock / 1000UL ) - 1UL;
+    
+    /* Stop and reset the SysTick */
+    SysTick->CTRL = 0UL;
+    SysTick->VAL = 0UL;
+    
+    /* Configure SysTick to interrupt at 1000 Hz (1ms tick) */
+    SysTick->LOAD = ulSysTickReloadValue;
+    
+    /* Enable SysTick with processor clock and interrupt */
+    SysTick->CTRL = ( SysTick_CTRL_CLKSOURCE_Msk | 
+                      SysTick_CTRL_TICKINT_Msk | 
+                      SysTick_CTRL_ENABLE_Msk );
+    
+    /* Force a read to ensure write completed */
+    (void)SysTick->CTRL;
 }

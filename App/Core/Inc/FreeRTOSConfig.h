@@ -87,6 +87,9 @@ extern uint32_t SystemCoreClock;
 #define xPortPendSVHandler  PendSV_Handler
 #define xPortSysTickHandler SysTick_Handler
 
+/* Disable handler installation check since we're using renamed handlers */
+#define configCHECK_HANDLER_INSTALLATION        0
+
 /* ====================================================================== */
 /* === Optional Feature Includes (Set to 1 to enable) =================== */
 /* ====================================================================== */
@@ -112,7 +115,7 @@ extern uint32_t SystemCoreClock;
 #define configUSE_RECURSIVE_MUTEXES             1
 #define configUSE_COUNTING_SEMAPHORES           1
 #define configUSE_TASK_NOTIFICATIONS            1
-#define configUSE_MALLOC_FAILED_HOOK            0 /* Set to 1 to add vApplicationMallocFailedHook() */
+#define configUSE_MALLOC_FAILED_HOOK            1 /* Set to 1 to add vApplicationMallocFailedHook() */
 #define configCHECK_FOR_STACK_OVERFLOW          2 /* Set to 2 for full stack checking */
 
 /* ====================================================================== */
