@@ -218,6 +218,12 @@ static void goto_application( void )
   /* Initialize user application's Stack Pointer */
   __set_MSP(*(__IO uint32_t*) APPLICATION_ADDRESS);
 
+  /* Set vector table offset to application */
+  SCB->VTOR = APPLICATION_ADDRESS;
+
+  /* Enable interrupts for application */
+  __enable_irq();
+  
   jump_to_application();
 }
 
