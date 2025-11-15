@@ -1,6 +1,8 @@
 #include "main.h"
 #include "stm32h7xx_it.h"
 
+extern TIM_HandleTypeDef htim6;
+
 /******************************************************************************/
 /*           Cortex Processor Interruption and Exception Handlers          */
 /******************************************************************************/
@@ -48,6 +50,14 @@ void UsageFault_Handler(void)
   * @brief This function handles Debug monitor.
   */
 void DebugMon_Handler(void) {}
+
+/**
+  * @brief This function handles TIM6 global interrupt.
+  */
+void TIM6_DAC_IRQHandler(void)
+{
+  HAL_TIM_IRQHandler(&htim6);
+}
 
 /* 
  * NOTE: SVC_Handler, PendSV_Handler, and SysTick_Handler are 

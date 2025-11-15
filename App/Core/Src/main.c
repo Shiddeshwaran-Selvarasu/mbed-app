@@ -7,7 +7,7 @@
 
 /* Application Version Info start */
 #define Major_VERSION  1
-#define Minor_VERSION  0
+#define Minor_VERSION  3
 #define Patch_VERSION  0
 
 #define __STRINGIFY(x) #x
@@ -27,7 +27,9 @@ static void MX_GPIO_DeInit(void);
 static void MX_USART3_UART_DeInit(void);
 
 static void vTaskApplicationMain(void *pvParameters);
-static void vTaskLog(void *pvParameters);
+static void vTaskGreenBlink(void *pvParameters);
+static void vTaskOrangeBlink(void *pvParameters);
+static void vTaskRedBlink(void *pvParameters);
 
 static void shutdown( void );
 
@@ -42,7 +44,7 @@ int main(void)
 {
   /* CRITICAL: Set NVIC priority grouping FIRST, before HAL_Init()
    * FreeRTOS requires NVIC_PRIORITYGROUP_4 (4 bits for preemption priority) */
-  NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
+  HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 
   /* Initialize the HAL Library */
   HAL_Init();
@@ -64,41 +66,28 @@ int main(void)
   LOG_INFO("Creating FreeRTOS tasks...\r\n");
 
   // Create FreeRTOS tasks
-  BaseType_t xReturned;
-  xReturned = xTaskCreate(vTaskApplicationMain, "LED_Task", 256, NULL, 1, NULL);
-  if (xReturned != pdPASS) {
-    LOG_ERROR("Failed to create LED_Task\r\n");
-  } else {
-    LOG_INFO("LED_Task created successfully\r\n");
-  }
-  
-  xReturned = xTaskCreate(vTaskLog, "LOG_Task", 256, NULL, 1, NULL);
-  if (xReturned != pdPASS) {
-    LOG_ERROR("Failed to create LOG_Task\r\n");
-  } else {
-    LOG_INFO("LOG_Task created successfully\r\n");
-  }
+  xTaskCreate(vTaskApplicationMain, "Main Task", 256, NULL, 1, NULL);
+  xTaskCreate(vTaskGreenBlink, "Green Blink Task", 256, NULL, 2, NULL);
+  xTaskCreate(vTaskOrangeBlink, "Orange Blink Task", 256, NULL, 2, NULL);
+  xTaskCreate(vTaskRedBlink, "Red Blink Task", 256, NULL, 2, NULL);
 
   LOG_INFO("Starting FreeRTOS scheduler...\r\n");
   LOG_INFO("SystemCoreClock = %lu Hz\r\n", SystemCoreClock);
-
-  /* CRITICAL: Disable and reset SysTick before FreeRTOS takes over
-   * The bootloader may have left SysTick configured */
-  SysTick->CTRL = 0;
-  SysTick->LOAD = 0;
-  SysTick->VAL = 0;
-  
-  LOG_INFO("SysTick disabled, starting scheduler now...\r\n");
 
   // Start the FreeRTOS scheduler (it will reconfigure SysTick)
   vTaskStartScheduler();
 
   /* ... Should never reach here ... */
   /* RTOS failure loop */
+  uint16_t fallback_timeout = 50; // (50 * 5) seconds
   while (1)
   {
-    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+    LOG_INFO("FreeRTOS failure detected...\r\n");
     HAL_Delay(5000);
+    if (--fallback_timeout == 0) {
+      LOG_INFO("Performing system shutdown and jump to bootloader...\r\n");
+      shutdown();
+    }
   }
 }
 
@@ -108,41 +97,92 @@ int main(void)
   * @retval None
   */
 static void vTaskApplicationMain(void *pvParameters)
-{
-  /* Immediate LED toggle to verify task is running */
-  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
-  
-  /* Simple infinite loop without delays to test if task runs at all */
-  volatile uint32_t counter = 0;
+{  
+  /* Simple infinite loop for main task */
   while (1)
   {
-    counter++;
-    if (counter > 1000000) {
-      HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-      counter = 0;
-    }
-  }
-}
-
-static void vTaskLog(void *pvParameters)
-{
-  const char *msg = "Logging task is running...\r\n";
-  while (1)
-  {
-    LOG_INFO("%s", msg);
+    LOG_INFO("Main task is running...\r\n");
     vTaskDelay(pdMS_TO_TICKS(2000)); // Log every 2 seconds
   }
 }
 
 /**
-  * @brief  Perform application shutdown sequence
+  * @brief  Function implementing the Green LED blink thread.
+  * @param  pvParameters not used
+  * @retval None
+  */
+static void vTaskGreenBlink(void *pvParameters)
+{
+    while (1)
+  {
+    HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+    vTaskDelay(pdMS_TO_TICKS(500)); // Toggle every 0.5 second
+  }
+}
+
+/**
+  * @brief  Function implementing the Orange LED blink thread.
+  * @param  pvParameters not used
+  * @retval None
+  */
+static void vTaskOrangeBlink(void *pvParameters)
+{
+    while (1)
+  {
+    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+    vTaskDelay(pdMS_TO_TICKS(1000)); // Toggle every 1 second
+  }
+}
+
+/**
+  * @brief  Function implementing the Red LED blink thread.
+  * @param  pvParameters not used
+  * @retval None
+  */static void vTaskRedBlink(void *pvParameters)
+{
+    while (1)
+  {
+    HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
+    vTaskDelay(pdMS_TO_TICKS(1500)); // Toggle every 1.5 second
+  }
+}
+
+/**
+  * @brief  Perform application shutdown sequence and jump to bootloader
   * @retval None
   */
 static void shutdown( void )
 {
+  /* Disable all interrupts */
+  __disable_irq();
+  
   /* Reset the peripherals */
   MX_USART3_UART_DeInit();
   MX_GPIO_DeInit();
+  
+  /* Deinitialize HAL */
+  HAL_DeInit();
+  
+  /* Reset SysTick */
+  SysTick->CTRL = 0;
+  SysTick->LOAD = 0;
+  SysTick->VAL = 0;
+  
+  /* Set MSP to bootloader's stack pointer */
+  __set_MSP(*(__IO uint32_t*)0x08000000);
+
+  /* Set vector table offset to bootloader */
+  SCB->VTOR = 0x08000000;
+
+  /* Enable interrupts */
+  __enable_irq();
+  
+  /* Jump to bootloader */
+  void (*bootloader)(void) = (void (*)(void))(*((uint32_t*)0x08000004));
+  bootloader();
+  
+  /* Should never reach here */
+  while(1);
 }
 
 /**
@@ -390,25 +430,15 @@ void vApplicationTickHook( void )
 }
 
 /**
-  * @brief  Override FreeRTOS SysTick setup to add debugging
+  * @brief  Period elapsed callback in non-blocking mode
+  * @param  htim : TIM handle
+  * @retval None
   */
-void vPortSetupTimerInterrupt( void )
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-    extern uint32_t SystemCoreClock;
-    const uint32_t ulSysTickReloadValue = ( SystemCoreClock / 1000UL ) - 1UL;
-    
-    /* Stop and reset the SysTick */
-    SysTick->CTRL = 0UL;
-    SysTick->VAL = 0UL;
-    
-    /* Configure SysTick to interrupt at 1000 Hz (1ms tick) */
-    SysTick->LOAD = ulSysTickReloadValue;
-    
-    /* Enable SysTick with processor clock and interrupt */
-    SysTick->CTRL = ( SysTick_CTRL_CLKSOURCE_Msk | 
-                      SysTick_CTRL_TICKINT_Msk | 
-                      SysTick_CTRL_ENABLE_Msk );
-    
-    /* Force a read to ensure write completed */
-    (void)SysTick->CTRL;
+  /* Check if the interrupt is from our HAL timebase timer (TIM6) */
+  if (htim->Instance == TIM6)
+  {
+    HAL_IncTick();
+  }
 }
