@@ -88,7 +88,7 @@ extern uint32_t SystemCoreClock;
 #define xPortSysTickHandler SysTick_Handler
 
 /* Disable handler installation check since we're using renamed handlers */
-#define configCHECK_HANDLER_INSTALLATION        0
+// #define configCHECK_HANDLER_INSTALLATION        0
 
 /* ====================================================================== */
 /* === Optional Feature Includes (Set to 1 to enable) =================== */
