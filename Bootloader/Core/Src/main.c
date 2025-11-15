@@ -223,7 +223,7 @@ static void goto_application( void )
 
   /* Enable interrupts for application */
   __enable_irq();
-  
+
   jump_to_application();
 }
 
