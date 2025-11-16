@@ -16,6 +16,9 @@ jobs:
       with:
         submodules: recursive
 
+    - name: install dependencies
+      run: sudo apt-get install build-essential arm-none-eabi-gdb
+
     - name: clean all
       run: make cleanall
 
