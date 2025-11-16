@@ -16,7 +16,7 @@ jobs:
       with:
         submodules: recursive
 
-    - name: clean
+    - name: clean all
       run: make cleanall
 
     - name: Run Build
