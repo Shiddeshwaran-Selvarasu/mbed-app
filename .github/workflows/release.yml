@@ -51,17 +51,21 @@ jobs:
           HF_VERSION=$(basename "$HF_FILE" | sed -E 's/HotFix_(v[0-9]+\.[0-9]+\.[0-9]+)\.bin/\1/')
         fi
         
-        # Create release tag (use App version as primary)
-        if [ -n "$APP_VERSION" ]; then
-          RELEASE_TAG="$APP_VERSION"
-        else
+        # Create release tag matching the title format
+        RELEASE_TAG="App_${APP_VERSION}_BL_${BL_VERSION}"
+        if [ -n "$HF_VERSION" ]; then
+          RELEASE_TAG="${RELEASE_TAG}_HF_${HF_VERSION}"
+        fi
+        
+        # Handle fallback if versions are missing
+        if [ -z "$APP_VERSION" ] || [ -z "$BL_VERSION" ]; then
           RELEASE_TAG="v$(date +%Y%m%d-%H%M%S)"
         fi
         
         # Create release title
         TITLE="Application $APP_VERSION Bootloader $BL_VERSION"
         if [ -n "$HF_VERSION" ]; then
-          TITLE="$TITLE HF $HF_VERSION"
+          TITLE="$TITLE Host Flash $HF_VERSION"
         fi
         
         echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
@@ -102,7 +106,7 @@ jobs:
         echo "- Application: ${{ steps.versions.outputs.app_version }}" >> release_notes.md
         echo "- Bootloader: ${{ steps.versions.outputs.bl_version }}" >> release_notes.md
         if [ -n "${{ steps.versions.outputs.hf_version }}" ]; then
-          echo "- HotFix: ${{ steps.versions.outputs.hf_version }}" >> release_notes.md
+          echo "- Host Flash: ${{ steps.versions.outputs.hf_version }}" >> release_notes.md
         fi
 
     - name: Identify changed binaries
