@@ -1,6 +1,8 @@
 #include "main.h"
 #include "stm32h7xx_it.h"
 
+extern TIM_HandleTypeDef htim6;
+
 /******************************************************************************/
 /*           Cortex Processor Interruption and Exception Handlers          */
 /******************************************************************************/
@@ -45,27 +47,28 @@ void UsageFault_Handler(void)
 }
 
 /**
-  * @brief This function handles System service call via SWI instruction.
-  */
-void SVC_Handler(void) {}
-
-/**
   * @brief This function handles Debug monitor.
   */
 void DebugMon_Handler(void) {}
 
 /**
-  * @brief This function handles Pendable request for system service.
+  * @brief This function handles TIM6 global interrupt.
   */
-void PendSV_Handler(void) {}
-
-/**
-  * @brief This function handles System tick timer.
-  */
-void SysTick_Handler(void)
+void TIM6_DAC_IRQHandler(void)
 {
-  HAL_IncTick();
+  HAL_TIM_IRQHandler(&htim6);
 }
+
+/* 
+ * NOTE: SVC_Handler, PendSV_Handler, and SysTick_Handler are 
+ * defined in FreeRTOS/portable/GCC/ARM_CM7/r0p1/port.c
+ * and renamed via macros in FreeRTOSConfig.h:
+ *   vPortSVCHandler     -> SVC_Handler
+ *   xPortPendSVHandler  -> PendSV_Handler  
+ *   xPortSysTickHandler -> SysTick_Handler
+ * 
+ * Do NOT define them here - they are provided by FreeRTOS!
+ */
 
 /******************************************************************************/
 /* STM32H7xx Peripheral Interrupt Handlers                                    */

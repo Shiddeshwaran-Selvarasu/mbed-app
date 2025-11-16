@@ -1,6 +1,7 @@
 #include "main.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "logger.h"
 #include "crc_helper.h"
@@ -10,7 +11,7 @@
 /* Bootloader Version Info start */
 #define Major_VERSION  3
 #define Minor_VERSION  1
-#define Patch_VERSION  7
+#define Patch_VERSION  8
 
 #define __STRINGIFY(x) #x
 #define _STRINGIFY(x) __STRINGIFY(x)
@@ -26,6 +27,7 @@ UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 void SystemClock_Config(void);
+void SystemClock_DeInit(void);
 
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
@@ -144,9 +146,9 @@ int main(void)
       LOG_INFO("Verifying application CRC...\r\n");
       int verify_status = verify_application_crc((uint32_t)app_crc);
       if (verify_status == 0) {
-        etx_config->is_app_bootable = true;
         LOG_INFO("CRC verified successfully...\r\n");
         LOG_INFO("Loading application...\r\n");
+        etx_config->is_app_bootable = true;
         goto_application();
       } else {
         LOG_ERROR("CRC verification failed. Error code: %d\r\n", verify_status);
@@ -192,38 +194,47 @@ static void goto_application( void )
   /* Disable all interrupts */
   __disable_irq();
   
-  /* Disable SysTick */
+  /* Full hardware cleanup (Caches, FPU, MPU) */
+  if (SCB->CCR & SCB_CCR_DC_Msk) { 
+    SCB_CleanInvalidateDCache();
+    SCB_DisableDCache();
+  }
+  if (SCB->CCR & SCB_CCR_IC_Msk) { 
+    SCB_InvalidateICache();
+    SCB_DisableICache();
+  }
+  SCB->CPACR &= ~((3UL << (10*2)) | (3UL << (11*2)));
+  MPU->CTRL = 0;
+
+  /* Disable bootloader's SysTick */
   SysTick->CTRL = 0;
   SysTick->LOAD = 0;
   SysTick->VAL = 0;
-
-  /* Reset the Clock */
-  HAL_RCC_DeInit();
+  
+  /* De-initialize HAL and reset clock configuration */
+  SystemClock_DeInit();
   HAL_DeInit();
   
   /* Disable all interrupt lines */
   for(int i = 0; i < 8; i++) {
-    NVIC->ICER[i] = 0xFFFFFFFF;
-  }
-  
-  /* Clear all pending interrupts */
-  for(int i = 0; i < 8; i++) {
-    NVIC->ICPR[i] = 0xFFFFFFFF;
+    NVIC->ICER[i] = 0xFFFFFFFF; // Disable all interrupts
+    NVIC->ICPR[i] = 0xFFFFFFFF; // Clear all pending flags
   }
 
-  typedef void (*pFunction)(void);
-  uint32_t jump_address = *(__IO uint32_t*) (APPLICATION_ADDRESS + 4U);
-  pFunction jump_to_application = (pFunction) jump_address;
-
-  /* Initialize user application's Stack Pointer */
-  __set_MSP(*(__IO uint32_t*) APPLICATION_ADDRESS);
-
-  /* Set vector table offset to application */
+  /* Set the application's Vector Table */
   SCB->VTOR = APPLICATION_ADDRESS;
 
-  /* Enable interrupts for application */
+  /* Initialize user application's Stack Pointer */
+  uint32_t app_stack = *(__IO uint32_t*) APPLICATION_ADDRESS;
+  __set_MSP(app_stack);
+
+  /* Get the application's Reset Handler address */
+  uint32_t jump_address = *(__IO uint32_t*) (APPLICATION_ADDRESS + 4U);
+  void (*jump_to_application)(void) = (void (*)(void)) jump_address;
+
   __enable_irq();
 
+  /* Jump to the application */
   jump_to_application();
 }
 
@@ -353,6 +364,31 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) Error_Handler();
+}
+
+/**
+ * @brief SystemClock De-Configuration Function
+ * @param None
+ * @retval None
+ */
+void SystemClock_DeInit(void)
+{
+  /* Reset clock configuration to default state */
+  // HAL_RCC_DeInit(); // this method does not fully reset to HSI, so we do it manually
+  
+  /* Enable HSI (it's the 64 MHz default) */
+  RCC->CR |= RCC_CR_HSION;
+  /* Wait for HSI to be ready */
+  while(!(RCC->CR & RCC_CR_HSIRDY)) {};
+
+  /* Switch the System Clock to HSI */
+  RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_SW) | RCC_CFGR_SW_HSI;
+  /* Wait for the switch to complete */
+  while((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_HSI) {};
+
+  /* Turn off the PLLs, HSE, and CSS */
+  RCC->CR &= ~(RCC_CR_PLL1ON | RCC_CR_PLL2ON | RCC_CR_PLL3ON);
+  RCC->CR &= ~(RCC_CR_HSEON | RCC_CR_HSEON);
 }
 
 /**

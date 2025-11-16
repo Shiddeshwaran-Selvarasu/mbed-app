@@ -34,12 +34,15 @@ INCLUDES = -ICore/Inc \
 		   -IDrivers/STM32H7xx_HAL_Driver/Inc \
 		   -IDrivers/CMSIS/Include \
 		   -IDrivers/CMSIS/Device/ST \
-		   -IDrivers/CMSIS/Device/ST/STM32H7xx/Include
+		   -IDrivers/CMSIS/Device/ST/STM32H7xx/Include \
+		   -IFreeRTOS/portable/GCC/ARM_CM7/r0p1 \
+		   -IFreeRTOS/portable/MemMang \
+		   -IFreeRTOS/include
 
 # =====================
 # Compiler Flags
 # =====================
-CFLAGS   = -mcpu=cortex-m7 -mthumb -O2 -g -Wall -ffunction-sections -fdata-sections $(INCLUDES) -DUSE_HAL_DRIVER -DSTM32H755xx -DCORE_CM7
+CFLAGS   = -mcpu=cortex-m7 -mthumb -O2 -g -Wall -ffunction-sections -fdata-sections $(INCLUDES) -DUSE_HAL_DRIVER -DSTM32H755xx -DCORE_CM7 -mfloat-abi=hard -mfpu=fpv5-d16
 
 # =====================
 # Output Files
@@ -73,7 +76,7 @@ all: $(BIN)
 # =====================
 # vpath for source files
 # =====================
-vpath %.c Core/Src Common/Src Drivers/STM32H7xx_HAL_Driver/Src Drivers/CMSIS/Device/ST/STM32H7xx/Source Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates
+vpath %.c Core/Src Common/Src Core/Overrides Drivers/STM32H7xx_HAL_Driver/Src Drivers/CMSIS/Device/ST/STM32H7xx/Source Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates FreeRTOS FreeRTOS/portable/GCC/ARM_CM7/r0p1 FreeRTOS/portable/MemMang
 vpath %.s Core/Startup
 
 # =====================
