@@ -1,0 +1,150 @@
+name: Create Release
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+  build-and-release:
+    # Only run if PR is from staging branch
+    if: github.head_ref == 'staging'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0  # Fetch all history for changelog generation
+
+    - name: Install dependencies
+      run: sudo apt-get install build-essential gcc-arm-none-eabi
+
+    - name: Clean all
+      run: make cleanall
+
+    - name: Run Build
+      run: make all -j$(nproc)
+
+    - name: Extract versions from binaries
+      id: versions
+      run: |
+        # Extract versions from binary filenames in build directory
+        APP_VERSION=""
+        BL_VERSION=""
+        HF_VERSION=""
+        
+        if [ -f build/App_*.bin ]; then
+          APP_FILE=$(ls build/App_*.bin | head -1)
+          APP_VERSION=$(basename "$APP_FILE" | sed -E 's/App_(v[0-9]+\.[0-9]+\.[0-9]+)\.bin/\1/')
+        fi
+        
+        if [ -f build/Bootloader_*.bin ]; then
+          BL_FILE=$(ls build/Bootloader_*.bin | head -1)
+          BL_VERSION=$(basename "$BL_FILE" | sed -E 's/Bootloader_(v[0-9]+\.[0-9]+\.[0-9]+)\.bin/\1/')
+        fi
+        
+        if [ -f build/HotFix_*.bin ]; then
+          HF_FILE=$(ls build/HotFix_*.bin | head -1)
+          HF_VERSION=$(basename "$HF_FILE" | sed -E 's/HotFix_(v[0-9]+\.[0-9]+\.[0-9]+)\.bin/\1/')
+        fi
+        
+        # Create release tag (use App version as primary)
+        if [ -n "$APP_VERSION" ]; then
+          RELEASE_TAG="$APP_VERSION"
+        else
+          RELEASE_TAG="v$(date +%Y%m%d-%H%M%S)"
+        fi
+        
+        # Create release title
+        TITLE="Application $APP_VERSION Bootloader $BL_VERSION"
+        if [ -n "$HF_VERSION" ]; then
+          TITLE="$TITLE HF $HF_VERSION"
+        fi
+        
+        echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
+        echo "bl_version=$BL_VERSION" >> $GITHUB_OUTPUT
+        echo "hf_version=$HF_VERSION" >> $GITHUB_OUTPUT
+        echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+        echo "release_title=$TITLE" >> $GITHUB_OUTPUT
+
+    - name: Get previous release tag
+      id: prev_tag
+      run: |
+        PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+        echo "Previous tag: $PREV_TAG"
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        PREV_TAG="${{ steps.prev_tag.outputs.prev_tag }}"
+        
+        if [ -z "$PREV_TAG" ]; then
+          # No previous tag, get all commits
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+        else
+          # Get commits since last tag
+          CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+        fi
+        
+        # Save changelog to file for multiline output
+        echo "$CHANGELOG" > changelog.txt
+        
+        # Also create a formatted version for the release
+        echo "## What's Changed" > release_notes.md
+        echo "" >> release_notes.md
+        echo "$CHANGELOG" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "## Binary Versions" >> release_notes.md
+        echo "- Application: ${{ steps.versions.outputs.app_version }}" >> release_notes.md
+        echo "- Bootloader: ${{ steps.versions.outputs.bl_version }}" >> release_notes.md
+        if [ -n "${{ steps.versions.outputs.hf_version }}" ]; then
+          echo "- HotFix: ${{ steps.versions.outputs.hf_version }}" >> release_notes.md
+        fi
+
+    - name: Identify changed binaries
+      id: changed_files
+      run: |
+        PREV_TAG="${{ steps.prev_tag.outputs.prev_tag }}"
+        CHANGED_BINARIES=""
+        
+        if [ -z "$PREV_TAG" ]; then
+          # No previous tag, include all binaries
+          CHANGED_BINARIES="all"
+        else
+          # Check which source directories have changed
+          if git diff --name-only ${PREV_TAG}..HEAD | grep -q "^App/"; then
+            CHANGED_BINARIES="${CHANGED_BINARIES}App "
+          fi
+          if git diff --name-only ${PREV_TAG}..HEAD | grep -q "^Bootloader/"; then
+            CHANGED_BINARIES="${CHANGED_BINARIES}Bootloader "
+          fi
+          if git diff --name-only ${PREV_TAG}..HEAD | grep -q "^HostFlashApp/"; then
+            CHANGED_BINARIES="${CHANGED_BINARIES}HotFix "
+          fi
+          if git diff --name-only ${PREV_TAG}..HEAD | grep -q "^Common/"; then
+            # Common affects all
+            CHANGED_BINARIES="all"
+          fi
+        fi
+        
+        echo "changed_binaries=$CHANGED_BINARIES" >> $GITHUB_OUTPUT
+        echo "Changed binaries: $CHANGED_BINARIES"
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.versions.outputs.release_tag }}
+        name: ${{ steps.versions.outputs.release_title }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false
+        files: |
+          build/App_*.bin
+          build/Bootloader_*.bin
+          build/HotFix_*.bin
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
