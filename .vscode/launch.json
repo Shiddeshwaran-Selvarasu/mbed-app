@@ -1,24 +1,19 @@
 {
-  "version": "0.2.0",
   "configurations": [
     {
-      "name": "C/C++ Runner: Debug Session",
-      "type": "cppdbg",
+      "name": "STM32 Debug (App)",
+      "type": "cortex-debug",
       "request": "launch",
-      "args": [],
-      "stopAtEntry": false,
-      "externalConsole": false,
-      "cwd": "/home/shiddesh/VScode/personal/mbed-app/Bootloader/Core/Src",
-      "program": "/home/shiddesh/VScode/personal/mbed-app/Bootloader/Core/Src/build/Debug/outDebug",
-      "MIMode": "gdb",
-      "miDebuggerPath": "gdb",
-      "setupCommands": [
-        {
-          "description": "Enable pretty-printing for gdb",
-          "text": "-enable-pretty-printing",
-          "ignoreFailures": true
-        }
-      ]
+      "cwd": "${workspaceFolder}/App",
+      "executable": "${workspaceFolder}/App/build/app.elf",
+      "servertype": "stlink",
+      "device": "STM32H755ZI",
+      "interface": "swd",
+      "runToEntryPoint": "main",
+      "gdbPath": "gdb-multiarch",
+      "svdFile": "${workspaceFolder}/App/Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h755xx.svd",
+      "preLaunchTask": "Build App",
+      "showDevDebugOutput": "parsed"
     }
   ]
 }
