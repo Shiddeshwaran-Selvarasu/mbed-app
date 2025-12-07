@@ -49,7 +49,7 @@ void config_load_defaults(ETX_CONFIG_ *etx_config)
   etx_config->app_size = 0; // Application Size set to 0
 
   // Reserved space
-  for (int i = 0; i < CONFIG_RESERVED_ENTRIES; i++) {
+  for (unsigned int i = 0; i < CONFIG_RESERVED_ENTRIES; i++) {
     etx_config->reserved[i] = 0;
   }
 
@@ -116,7 +116,7 @@ void test_config_load_defaults_clears_reserved_fields(void) {
     
     config_load_defaults(&config);
     
-    for (int i = 0; i < CONFIG_RESERVED_ENTRIES; i++) {
+    for (unsigned int i = 0; i < CONFIG_RESERVED_ENTRIES; i++) {
         TEST_ASSERT_EQUAL_UINT32(0, config.reserved[i]);
     }
 }
