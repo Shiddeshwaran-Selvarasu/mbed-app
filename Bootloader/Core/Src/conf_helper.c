@@ -3,6 +3,15 @@
 #include "conf_helper.h"
 #include "flash_editor.h"
 
+/* Configuration storage constants */
+#define CONFIG_FLASH_SECTOR           FLASH_SECTOR_2
+#define CONFIG_FLASH_BANK             FLASH_BANK_1
+#define CONFIG_NUM_SECTORS            1U
+#define CONFIG_RESERVED_ENTRIES       10U
+
+/*******************************************************************************
+ * Public Functions
+ ******************************************************************************/
 /**
  * @brief  Loads configuration from flash
  * @param  ETX_CONFIG_ *etx_config: Pointer to the configuration structure
@@ -34,7 +43,7 @@ void config_load_defaults(ETX_CONFIG_ *etx_config)
   etx_config->app_size = 0; // Application Size set to 0
 
   // Reserved space
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < CONFIG_RESERVED_ENTRIES; i++) {
     etx_config->reserved[i] = 0;
   }
 
@@ -62,13 +71,13 @@ CFG_SAVE_STATUS_ config_save(ETX_CONFIG_ *etx_config)
 
   HAL_StatusTypeDef status;
 
-  status = erase_flash(FLASH_BANK_1, FLASH_SECTOR_2, 1);
+  status = erase_flash(CONFIG_FLASH_BANK, CONFIG_FLASH_SECTOR, CONFIG_NUM_SECTORS);
   if (status != HAL_OK) {
     LOG_ERROR("Failed to erase flash sector\r\n");
     return CFG_SAVE_ERR;
   }
 
-  status = write_flash(CONFIG_FLASH_ADDR, (uint32_t *)etx_config, sizeof(ETX_CONFIG_), FLASH_BANK_1);
+  status = write_flash(CONFIG_FLASH_ADDR, (uint32_t *)etx_config, sizeof(ETX_CONFIG_), CONFIG_FLASH_BANK);
   if (status != HAL_OK) {
     LOG_ERROR("Failed to write Config...\r\n");
     return CFG_SAVE_ERR;

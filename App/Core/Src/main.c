@@ -16,6 +16,19 @@
 #define APP_VER_STRING "Application Version " APP_VERSION " stable release"
 /* Application Version Info end */
 
+/* Task timing constants */
+#define MAIN_TASK_LOG_PERIOD_MS      2000U  /* Log every 2 seconds */
+#define GREEN_LED_TOGGLE_PERIOD_MS   500U   /* Toggle every 0.5 second */
+#define ORANGE_LED_TOGGLE_PERIOD_MS  1000U  /* Toggle every 1 second */
+#define RED_LED_TOGGLE_PERIOD_MS     1500U  /* Toggle every 1.5 second */
+
+/* FreeRTOS failure handling */
+#define FREERTOS_FAILURE_TIMEOUT_MS  5000U  /* 5 seconds delay */
+#define FREERTOS_FAILURE_MAX_RETRIES 50U    /* Max retries before shutdown */
+
+/* Bootloader jump addresses */
+#define BOOTLOADER_BASE_ADDRESS      0x08000000UL
+
 UART_HandleTypeDef huart3;
 
 void SystemClock_Config(void);
@@ -79,11 +92,11 @@ int main(void)
 
   /* ... Should never reach here ... */
   /* RTOS failure loop */
-  uint16_t fallback_timeout = 50; // (50 * 5) seconds
+  uint16_t fallback_timeout = FREERTOS_FAILURE_MAX_RETRIES;
   while (1)
   {
     LOG_INFO("FreeRTOS failure detected...\r\n");
-    HAL_Delay(5000);
+    HAL_Delay(FREERTOS_FAILURE_TIMEOUT_MS);
     if (--fallback_timeout == 0) {
       LOG_INFO("Performing system shutdown and jump to bootloader...\r\n");
       shutdown();
@@ -91,6 +104,9 @@ int main(void)
   }
 }
 
+/*******************************************************************************
+ * FreeRTOS Task Functions
+ ******************************************************************************/
 /**
   * @brief  Function implementing the Main thread.
   * @param  pvParameters not used
@@ -102,7 +118,7 @@ static void vTaskApplicationMain(void *pvParameters)
   while (1)
   {
     LOG_INFO("Main task is running...\r\n");
-    vTaskDelay(pdMS_TO_TICKS(2000)); // Log every 2 seconds
+    vTaskDelay(pdMS_TO_TICKS(MAIN_TASK_LOG_PERIOD_MS));
   }
 }
 
@@ -113,10 +129,10 @@ static void vTaskApplicationMain(void *pvParameters)
   */
 static void vTaskGreenBlink(void *pvParameters)
 {
-    while (1)
+  while (1)
   {
     HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-    vTaskDelay(pdMS_TO_TICKS(500)); // Toggle every 0.5 second
+    vTaskDelay(pdMS_TO_TICKS(GREEN_LED_TOGGLE_PERIOD_MS));
   }
 }
 
@@ -127,10 +143,10 @@ static void vTaskGreenBlink(void *pvParameters)
   */
 static void vTaskOrangeBlink(void *pvParameters)
 {
-    while (1)
+  while (1)
   {
     HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-    vTaskDelay(pdMS_TO_TICKS(1000)); // Toggle every 1 second
+    vTaskDelay(pdMS_TO_TICKS(ORANGE_LED_TOGGLE_PERIOD_MS));
   }
 }
 
@@ -138,15 +154,19 @@ static void vTaskOrangeBlink(void *pvParameters)
   * @brief  Function implementing the Red LED blink thread.
   * @param  pvParameters not used
   * @retval None
-  */static void vTaskRedBlink(void *pvParameters)
+  */
+static void vTaskRedBlink(void *pvParameters)
 {
-    while (1)
+  while (1)
   {
     HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
-    vTaskDelay(pdMS_TO_TICKS(1500)); // Toggle every 1.5 second
+    vTaskDelay(pdMS_TO_TICKS(RED_LED_TOGGLE_PERIOD_MS));
   }
 }
 
+/*******************************************************************************
+ * Application Shutdown Function
+ ******************************************************************************/
 /**
   * @brief  Perform application shutdown sequence and jump to bootloader
   * @retval None
@@ -169,22 +189,25 @@ static void shutdown( void )
   SysTick->VAL = 0;
   
   /* Set MSP to bootloader's stack pointer */
-  __set_MSP(*(__IO uint32_t*)0x08000000);
+  __set_MSP(*(__IO uint32_t*)BOOTLOADER_BASE_ADDRESS);
 
   /* Set vector table offset to bootloader */
-  SCB->VTOR = 0x08000000;
+  SCB->VTOR = BOOTLOADER_BASE_ADDRESS;
 
   /* Enable interrupts */
   __enable_irq();
   
   /* Jump to bootloader */
-  void (*bootloader)(void) = (void (*)(void))(*((uint32_t*)0x08000004));
+  void (*bootloader)(void) = (void (*)(void))(*((uint32_t*)(BOOTLOADER_BASE_ADDRESS + 4)));
   bootloader();
   
   /* Should never reach here */
   while(1);
 }
 
+/*******************************************************************************
+ * System Configuration Functions
+ ******************************************************************************/
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -239,6 +262,9 @@ void SystemClock_Config(void)
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) Error_Handler();
 }
 
+/*******************************************************************************
+ * Peripheral Initialization and Deinitialization Functions
+ ******************************************************************************/
 /**
   * @brief USART3 Initialization Function
   * @param None
@@ -345,6 +371,10 @@ static void MX_GPIO_DeInit(void)
   HAL_GPIO_DeInit(LED2_GPIO_Port, LED2_Pin);
 }
 
+/*******************************************************************************
+ * C Library printf Redirection
+ ******************************************************************************/
+
 #ifdef __GNUC__
 /* With GCC/RAISONANCE, small printf (option LD Linker->Libraries->Small printf
    set to 'Yes') calls __io_putchar() */ 
@@ -357,6 +387,9 @@ int fputc(int ch, FILE *f)
   return ch;
 }
 
+/*******************************************************************************
+ * Error Handler
+ ******************************************************************************/
 /**
   * @brief  This function is executed in case of error occurrence.
   * @retval None
@@ -368,11 +401,9 @@ void Error_Handler(void)
   while (1) {}
 }
 
-/* 
-  =============================================
-  |                 FreeRTOS                  |
-  =============================================
-*/
+/*******************************************************************************
+ * FreeRTOS Callbacks and Hooks
+ ******************************************************************************/
 
 /**
   * @brief  FreeRTOS assertion failed

@@ -1,6 +1,10 @@
 #include "flash_editor.h"
 #include "logger.h"
 
+/*******************************************************************************
+ * Public Functions
+ ******************************************************************************/
+
 HAL_StatusTypeDef erase_flash(uint32_t bank, uint32_t sector, uint32_t num_sectors)
 {
   HAL_StatusTypeDef status;

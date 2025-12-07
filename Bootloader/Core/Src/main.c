@@ -6,7 +6,7 @@
 #include "logger.h"
 #include "crc_helper.h"
 #include "conf_helper.h"
-#include "ext_flash_reciever.h"
+#include "ext_flash_receiver.h"
 
 /* Bootloader Version Info start */
 #define Major_VERSION  3
@@ -18,6 +18,14 @@
 #define BL_VERSION   "v"_STRINGIFY(Major_VERSION)"."_STRINGIFY(Minor_VERSION)"."_STRINGIFY(Patch_VERSION)
 #define BL_VER_STRING "Bootloader Version " BL_VERSION " stable release"
 /* Bootloader Version Info end */
+
+/* Bootloader timing constants */
+#define BUTTON_CHECK_TIMEOUT_MS     5000U   /* 5 seconds timeout for button press */
+#define BOOTLOADER_LED_DELAY_MS     2500U   /* LED toggle delay when staying in bootloader */
+#define UART_TRANSMIT_DELAY_MS      100U    /* Delay before jumping to app */
+
+/* Hardware cleanup constants */
+#define NVIC_INTERRUPT_BANKS        8U      /* Number of NVIC interrupt banks */
 
 /* Create a config data in Ram and load data from flash */
 ETX_CONFIG_ *etx_config;
@@ -68,7 +76,7 @@ int main(void)
   validate_config(); // Validate and load configuration
 
   GPIO_PinState ota_pin_state;
-  uint32_t timeout = HAL_GetTick() + 5000; // 5 seconds timeout
+  uint32_t timeout = HAL_GetTick() + BUTTON_CHECK_TIMEOUT_MS;
 
   /*
    * crc_check_status values: 
@@ -167,13 +175,13 @@ int main(void)
   while (1)
   {
     HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin); // Application jump failed
-    HAL_Delay(2500);
+    HAL_Delay(BOOTLOADER_LED_DELAY_MS);
   }
 }
 
-/*************************************************************
- * Application Verification and Jump functions
- *************************************************************/
+/*******************************************************************************
+ * Application Verification and Jump Functions
+ ******************************************************************************/
 
 /**
  * @brief  Jump to user application
@@ -183,7 +191,7 @@ int main(void)
 static void goto_application( void )
 { 
   /* Brief delay to ensure UART transmission completes */
-  HAL_Delay(100);
+  HAL_Delay(UART_TRANSMIT_DELAY_MS);
   
   /* Reset the peripherals */
   MX_USART2_UART_DeInit();
@@ -216,7 +224,7 @@ static void goto_application( void )
   HAL_DeInit();
   
   /* Disable all interrupt lines */
-  for(int i = 0; i < 8; i++) {
+  for(int i = 0; i < NVIC_INTERRUPT_BANKS; i++) {
     NVIC->ICER[i] = 0xFFFFFFFF; // Disable all interrupts
     NVIC->ICPR[i] = 0xFFFFFFFF; // Clear all pending flags
   }
@@ -282,12 +290,16 @@ static uint32_t verify_application_crc(uint32_t crc_value)
   return 0; // CRC matches
 }
 
+/*******************************************************************************
+ * Configuration Validation
+ ******************************************************************************/
+
 /**
  * @brief  valiade the configuration data in flash
  * @param  None
  * @retval None
  */
-void validate_config( void )
+static void validate_config( void )
 {
   if (etx_config->config_valid_marker != VALID_CONF_MARKER) {
     LOG_ERROR("Invalid configuration marker: 0x%08lX\r\n", etx_config->config_valid_marker);
@@ -308,9 +320,9 @@ void validate_config( void )
   }
 }
 
-/***********************************************************
- * Peripheral initialization and Deinitialization functions
- ***********************************************************/
+/*******************************************************************************
+ * Peripheral Initialization and Deinitialization Functions
+ ******************************************************************************/
 
 /**
   * @brief System Clock Configuration
@@ -557,9 +569,9 @@ static void MX_GPIO_DeInit(void)
   HAL_GPIO_DeInit(LED2_GPIO_Port, LED2_Pin);
 }
 
-/************************************************************* 
-* Redirect the C library printf function to the USART.
-**************************************************************/
+/*******************************************************************************
+ * C Library printf Redirection
+ ******************************************************************************/
 
 #ifdef __GNUC__
 /* With GCC/RAISONANCE, small printf (option LD Linker->Libraries->Small printf
@@ -573,9 +585,9 @@ int fputc(int ch, FILE *f)
   return ch;
 }
 
-/***************************************************************
-*                   Error Handler
-****************************************************************/
+/*******************************************************************************
+ * Error Handler
+ ******************************************************************************/
 
 /**
   * @brief  This function is executed in case of error occurrence.
