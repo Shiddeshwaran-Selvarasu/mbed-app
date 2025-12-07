@@ -1,4 +1,4 @@
-#include "ext_flash_reciever.h"
+#include "ext_flash_receiver.h"
 #include "flash_editor.h"
 #include "conf_helper.h"
 #include "crc_helper.h"
