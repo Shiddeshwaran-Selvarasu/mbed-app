@@ -1,9 +1,6 @@
 #include "flash_editor.h"
 #include "logger.h"
 
-/* Flash operation timeout */
-#define HAL_FLASH_OP_TIMEOUT          50000U  /* Flash operation timeout in ms */
-
 /*******************************************************************************
  * Public Functions
  ******************************************************************************/

@@ -374,6 +374,8 @@ static void MX_GPIO_DeInit(void)
 /*******************************************************************************
  * C Library printf Redirection
  ******************************************************************************/
+
+#ifdef __GNUC__
 /* With GCC/RAISONANCE, small printf (option LD Linker->Libraries->Small printf
    set to 'Yes') calls __io_putchar() */ 
 int __io_putchar(int ch)
