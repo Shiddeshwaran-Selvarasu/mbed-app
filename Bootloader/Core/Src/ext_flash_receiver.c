@@ -4,6 +4,13 @@
 #include "crc_helper.h"
 #include "logger.h"
 
+/* Retry configuration */
+#define MAX_NACK_RETRIES              3U      /* Maximum NACK retry attempts */
+
+/*******************************************************************************
+ * Private Variables
+ ******************************************************************************/
+
 /* Rx Buffer */
 static uint8_t rx_buffer[ETX_FRAME_PACKET_MAX_SIZE];
 
@@ -20,12 +27,15 @@ static uint32_t expected_crc;
 static bool is_data_transfer_complete;
 static bool is_flash_write_started;
 static uint8_t nack_sent_count = 0;
-static const uint8_t max_nack_retries = 3;
 
 /* Hardware CRC handle */
 extern CRC_HandleTypeDef hcrc;
 
-// Internal Function prototypes
+/*******************************************************************************
+ * Private Function Prototypes
+ ******************************************************************************/
+
+/* Communication functions */
 static ETX_DL_FRAME_EX_ etx_receive_data(uint8_t *buffer);
 static ETX_DL_FRAME_EX_ etx_receive_response(uint8_t *rsp);
 static ETX_DL_FRAME_EX_ etx_send_data(ETX_DL_FRAME_ *buffer);
@@ -35,9 +45,13 @@ static HAL_StatusTypeDef etx_rx_data(uint8_t *buffer);
 static HAL_StatusTypeDef etx_tx_rsp(ETX_DL_RSPF_ *buffer);
 static HAL_StatusTypeDef etx_rx_rsp(ETX_DL_RSPF_ *buffer);
 
-// Flash operation prototypes
+/* Flash operation functions */
 static HAL_StatusTypeDef flash_application_data(uint32_t address, uint32_t *data, uint32_t length);
 static HAL_StatusTypeDef flash_erase_application();
+
+/*******************************************************************************
+ * Public Functions
+ ******************************************************************************/
 
 /**
  * @brief  Download the application from UART and flash it.
@@ -64,7 +78,7 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
   LOG_INFO("Waiting ETX APP download to start [State: IDLE]...\r\n");
 
   do {
-    if (nack_sent_count >= max_nack_retries) {
+    if (nack_sent_count >= MAX_NACK_RETRIES) {
       LOG_ERROR("Maximum NACK retries reached. Aborting download...\r\n");
       dl_state = ETX_DL_STATE_FAILED;
     } else if (!is_data_transfer_complete) {
@@ -200,6 +214,10 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
 
   return ret_val;
 }
+
+/*******************************************************************************
+ * Private Communication Functions
+ ******************************************************************************/
 
 static ETX_DL_FRAME_EX_ etx_receive_data(uint8_t *buffer)
 {
@@ -399,6 +417,10 @@ static HAL_StatusTypeDef etx_rx_rsp(ETX_DL_RSPF_ *buffer)
 
   return HAL_OK;
 }
+
+/*******************************************************************************
+ * Private Flash Operation Functions
+ ******************************************************************************/
 
 static HAL_StatusTypeDef flash_application_data(uint32_t address, uint32_t *data, uint32_t length)
 {

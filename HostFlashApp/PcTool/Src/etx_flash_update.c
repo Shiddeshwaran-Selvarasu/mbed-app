@@ -18,6 +18,22 @@
 #define HF_VER_STRING "Host Flash Version " HF_VERSION " stable release"
 /* Host Flash Version Info end */
 
+/* Communication timing constants */
+#define BYTE_DELAY_US                 1500U   /* Delay between byte transmissions */
+#define INTER_BYTE_DELAY_US           1U      /* Short delay for response bytes */
+#define TEST_BYTE_DELAY_US            10000U  /* Delay for test sequence bytes */
+
+/* Retry configuration */
+#define MAX_NACK_RETRIES              3U      /* Maximum NACK retry attempts */
+
+/* CRC calculation constants */
+#define CRC_INITIAL_VALUE             0xFFFFFFFFU
+#define CRC_POLYNOMIAL                0xEDB88320U
+
+/*******************************************************************************
+ * Global Variables
+ ******************************************************************************/
+
 uint8_t DATA_BUF[ETX_FRAME_PACKET_MAX_SIZE];
 uint8_t RSP_BUF[ETX_RSPF_PACKET_SIZE];
 uint8_t APP_BIN[ETX_DL_MAX_FW_SIZE];
@@ -28,23 +44,25 @@ uint32_t app_crc = 0;
 uint32_t total_data_fragments = 0;
 uint32_t sent_data_fragments = 0;
 
-/* ***** Utility Functions - Start ***** */
+/*******************************************************************************
+ * Utility Functions
+ ******************************************************************************/
 
 uint32_t CalcCRC(uint8_t * pData, uint32_t DataLength)
 {
-    uint32_t crc = 0xFFFFFFFF;
-    for(unsigned int i = 0; i < DataLength; i++)
+  uint32_t crc = CRC_INITIAL_VALUE;
+  for(unsigned int i = 0; i < DataLength; i++)
+  {
+    crc ^= pData[i];
+    for(int j = 0; j < 8; j++)
     {
-        crc ^= pData[i];
-        for(int j = 0; j < 8; j++)
-        {
-            if(crc & 1)
-                crc = (crc >> 1) ^ 0xEDB88320;
-            else
-                crc = crc >> 1;
-        }
+      if(crc & 1)
+        crc = (crc >> 1) ^ CRC_POLYNOMIAL;
+      else
+        crc = crc >> 1;
     }
-    return ~crc;
+  }
+  return ~crc;
 }
 
 void delay(uint32_t us)
@@ -151,7 +169,7 @@ ETX_DL_FRAME_EX_ etx_tx_data(int comport_number, ETX_DL_FRAME_ *buffer)
       printf("Send Err: %d\n", buffer->packet_type);
       return ETX_DL_FRAME_EX_ERR;
     }
-    delay(1500);
+    delay(BYTE_DELAY_US);
   }
 
   // send (CRC + EOF)
@@ -161,7 +179,7 @@ ETX_DL_FRAME_EX_ etx_tx_data(int comport_number, ETX_DL_FRAME_ *buffer)
       printf("Send Err: %d\n", buffer->packet_type);
       return ETX_DL_FRAME_EX_ERR;
     }
-    delay(1500);
+    delay(BYTE_DELAY_US);
   }
 
   return ETX_DL_FRAME_EX_OK;
@@ -175,7 +193,7 @@ ETX_DL_FRAME_EX_ etx_tx_response(int comport_number, ETX_DL_RSPF_ *response)
 
   // send (SOF + packet_type + payload + EOF)
   for(uint32_t i = 0; i < sizeof(ETX_DL_RSPF_); i++) {
-    delay(1);
+    delay(INTER_BYTE_DELAY_US);
     if( RS232_SendByte(comport_number, ((uint8_t *)response)[i]) ) {
       //some data missed.
       printf("Send Err: %d\n", response->packet_type);
@@ -266,9 +284,9 @@ ETX_DL_FRAME_EX_ etx_rx_response(int comport_number, ETX_DL_RSPF_ *buffer)
   return ETX_DL_FRAME_EX_OK;
 }
 
-/* ***** IO Functions - End ***** */
-
-/* ***** COM Functions - Start ***** */
+/*******************************************************************************
+ * Communication Functions
+ ******************************************************************************/
 
 ETX_DL_FRAME_EX_ etx_send_data(int comport_number, ETX_DL_FRAME_ *data_frame, bool skip_ack_check)
 {
@@ -287,7 +305,6 @@ ETX_DL_FRAME_EX_ etx_send_data(int comport_number, ETX_DL_FRAME_ *data_frame, bo
   // Wait for ACK/NACK (retransmit if NACK max 3 times)
   ETX_DL_RSPF_ response;
   int nack_received_count = 0;
-  const int max_nack_retries = 3;
 
   if (skip_ack_check) {
     printf("Ack check not required...\r\n");
@@ -307,14 +324,14 @@ ETX_DL_FRAME_EX_ etx_send_data(int comport_number, ETX_DL_FRAME_ *data_frame, bo
       return ETX_DL_FRAME_EX_OK; // Acknowledged
     } else if (response.payload == ETX_DL_RSP_NACK) {
       nack_received_count++;
-      printf("Host NACK received, retrying... (%d/%d)\r\n", nack_received_count, max_nack_retries);
+      printf("Host NACK received, retrying... (%d/%d)\r\n", nack_received_count, MAX_NACK_RETRIES);
       status = etx_tx_data(comport_number, data_frame); // Resend data frame
       if (status != ETX_DL_FRAME_EX_OK) {
         printf("Failed to resend data frame\r\n");
         return status;
       }
     }
-  } while (nack_received_count < max_nack_retries);
+  } while (nack_received_count < MAX_NACK_RETRIES);
 
   return ETX_DL_FRAME_EX_OK;
 }
@@ -376,9 +393,9 @@ ETX_DL_FRAME_EX_ etx_receive_response(int comport_number, ETX_DL_RSPF_ *rsp_fram
   return ETX_DL_FRAME_EX_OK;
 }
 
-/* ***** COM Functions - End ***** */
-
-/* ***** Payload Functions - Start ***** */
+/*******************************************************************************
+ * Payload Functions
+ ******************************************************************************/
 
 ETX_DL_EX_ etx_send_start_cmd(int comport_number)
 {
@@ -487,9 +504,9 @@ ETX_DL_EX_ etx_send_end_cmd(int comport_number)
   return ETX_DL_EX_OK;
 }
 
-/* ***** Payload Functions - End ***** */
-
-/* ***** Main Function ***** */
+/*******************************************************************************
+ * Main Function
+ ******************************************************************************/
 int main(int argc, char *argv[])
 {
   char *comport = NULL;
