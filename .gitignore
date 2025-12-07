@@ -61,5 +61,8 @@ HostFlashApp/PcTool/build
 flash_image.bin
 build
 
+# test build files
+tests/build
+
 # test play ground
 testing 
