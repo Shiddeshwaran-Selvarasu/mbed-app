@@ -4,7 +4,7 @@
 extern TIM_HandleTypeDef htim6;
 
 /******************************************************************************/
-/*           Cortex Processor Interruption and Exception Handlers          */
+/*           Cortex Processor Interruption and Exception Handlers             */
 /******************************************************************************/
 /**
   * @brief This function handles Non maskable interrupt.
@@ -76,3 +76,15 @@ void TIM6_DAC_IRQHandler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32h7xx.s).                    */
 /******************************************************************************/
+
+/******************************************************************************/
+/*                         Custom Interrupt Handlers                          */
+/******************************************************************************/
+
+/**
+  * @brief This function handles EXTI line[0] interrupts from ESP_HSK_Pin(GPIO).
+  */
+void EXTI0_IRQHandler(void)
+{
+    HAL_GPIO_EXTI_IRQHandler(ESP_HSK_Pin);
+}
