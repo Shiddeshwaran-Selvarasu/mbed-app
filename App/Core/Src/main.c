@@ -44,9 +44,6 @@ static void MX_SDMMC1_DeInit(void);
 static void MX_USART3_UART_DeInit(void);
 
 static void vTaskApplicationMain(void *pvParameters);
-static void vTaskGreenBlink(void *pvParameters);
-static void vTaskOrangeBlink(void *pvParameters);
-static void vTaskRedBlink(void *pvParameters);
 static void vTaskESPHandshake(void *pvParameters);
 
 static void shutdown( void );
@@ -60,7 +57,11 @@ static int SDIO_Send_CMD52_Read(uint8_t fn, uint32_t addr, uint8_t *data);
 static int SDIO_SetBlockSize(void);
 
 static int SDIO_CMD53_Write(uint8_t fn, uint32_t addr, uint8_t *buffer, uint32_t length);
+static int SDIO_CMD53_Write_ByteMode(uint8_t fn, uint32_t addr, uint8_t *buffer, uint32_t length);
+static int SDIO_CMD53_Write_BlockMode(uint8_t fn, uint32_t addr, uint8_t *buffer, uint32_t blocks);
 static int SDIO_CMD53_Read(uint8_t fn, uint32_t addr, uint8_t *buffer, uint32_t length);
+
+void print_hex_dump(uint8_t *buffer, uint32_t len);
 
 /* Override FreeRTOS weak function to debug SysTick setup */
 void vPortSetupTimerInterrupt( void );
@@ -102,9 +103,6 @@ int main(void)
 
   // Create FreeRTOS tasks
   xTaskCreate(vTaskApplicationMain, "Main Task", 256, NULL, 1, NULL);
-  // xTaskCreate(vTaskGreenBlink, "Green Blink Task", 256, NULL, 2, NULL);
-  xTaskCreate(vTaskOrangeBlink, "Orange Blink Task", 256, NULL, 2, NULL);
-  xTaskCreate(vTaskRedBlink, "Red Blink Task", 256, NULL, 2, NULL);
   xTaskCreate(vTaskESPHandshake, "ESP Handshake Task", 256, NULL, 3, NULL);
 
   LOG_INFO("Starting FreeRTOS scheduler...\r\n");
@@ -141,49 +139,8 @@ static void vTaskApplicationMain(void *pvParameters)
   while (1)
   {
     LOG_INFO("Main task is running...\r\n");
-    vTaskDelay(pdMS_TO_TICKS(MAIN_TASK_LOG_PERIOD_MS));
-  }
-}
-
-/**
-  * @brief  Function implementing the Green LED blink thread.
-  * @param  pvParameters not used
-  * @retval None
-  */
-static void vTaskGreenBlink(void *pvParameters)
-{
-  while (1)
-  {
     HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-    vTaskDelay(pdMS_TO_TICKS(GREEN_LED_TOGGLE_PERIOD_MS));
-  }
-}
-
-/**
-  * @brief  Function implementing the Orange LED blink thread.
-  * @param  pvParameters not used
-  * @retval None
-  */
-static void vTaskOrangeBlink(void *pvParameters)
-{
-  while (1)
-  {
-    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-    vTaskDelay(pdMS_TO_TICKS(ORANGE_LED_TOGGLE_PERIOD_MS));
-  }
-}
-
-/**
-  * @brief  Function implementing the Red LED blink thread.
-  * @param  pvParameters not used
-  * @retval None
-  */
-static void vTaskRedBlink(void *pvParameters)
-{
-  while (1)
-  {
-    HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
-    vTaskDelay(pdMS_TO_TICKS(RED_LED_TOGGLE_PERIOD_MS));
+    vTaskDelay(pdMS_TO_TICKS(MAIN_TASK_LOG_PERIOD_MS));
   }
 }
 
@@ -196,143 +153,193 @@ static void vTaskESPHandshake(void *pvParameters)
 {
     uint32_t r4  = 0;
     uint32_t rca = 0;
+    uint8_t  io_ready = 0;
 
-    /*============================================================
-     * 1. Power up ESP32 cleanly
-     *===========================================================*/
-    vTaskDelay(pdMS_TO_TICKS(1000));   // Board settle time
+    /* FIX: Static + Aligned to prevent Stack Overflow and HardFaults */
+    static uint8_t tx_buffer[512] __attribute__((aligned(4)));
 
+    memset(tx_buffer, 0xAA, sizeof(tx_buffer));
+
+    /*----------------------------------------------------------*/
+    /* 1. Power up ESP32                                        */
+    /*----------------------------------------------------------*/
+    /* Assert EN pin to boot ESP32 */
     HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_SET);
     LOG_INFO("ESP_EN asserted\r\n");
 
-    /* ESP32 needs time to boot firmware and enable SDIO slave */
-    vTaskDelay(pdMS_TO_TICKS(1200));
+    /* FIX: Reduced delay to catch the "Hello" packet early */
+    vTaskDelay(pdMS_TO_TICKS(100));
 
-    /*============================================================
-     * 2. CMD0 – GO_IDLE_STATE (reset SDIO bus)
-     *===========================================================*/
+    /*----------------------------------------------------------*/
+    /* 2. CMD0 (Reset)                                          */
+    /*----------------------------------------------------------*/
     if (SDIO_Send_CMD0() != 0)
     {
         LOG_ERROR("CMD0 failed\r\n");
         vTaskDelete(NULL);
     }
 
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    /*============================================================
-     * 3. CMD5 – IO_SEND_OP_COND (poll until IO_READY)
-     *    Voltage window: 3.3V (0x00FF8000)
-     *===========================================================*/
+    /*----------------------------------------------------------*/
+    /* 3. CMD5 – IO_SEND_OP_COND                                */
+    /*----------------------------------------------------------*/
     LOG_INFO("Polling CMD5...\r\n");
 
-    for (int i = 0; i < 150; i++)
+    for (int i = 0; i < 200; i++) // Increased retries for robustness
     {
         if (SDIO_Send_CMD5(0x00FF8000, &r4) == 0)
         {
-            LOG_INFO("CMD5 R4 = 0x%08lX\r\n", r4);
-
-            if (r4 & (1UL << 31))   // IO_READY bit
+            if (r4 & (1UL << 31)) // IO_READY bit
             {
-                LOG_INFO("ESP32 SDIO READY\r\n");
+                LOG_INFO("ESP32 SDIO READY (R4=0x%08lX)\r\n", r4);
                 break;
             }
         }
-
-        vTaskDelay(pdMS_TO_TICKS(100));
-
-        if (i == 149)
-        {
-            LOG_ERROR("CMD5 timeout: ESP32 not responding\r\n");
+        vTaskDelay(pdMS_TO_TICKS(20)); // Poll faster
+        if (i == 199) {
+            LOG_ERROR("CMD5 timeout\r\n");
             vTaskDelete(NULL);
         }
     }
 
-    /*============================================================
-     * 4. CMD3 – Assign Relative Card Address
-     *===========================================================*/
-    if (SDIO_Send_CMD3(&rca) != 0)
-    {
+    /*----------------------------------------------------------*/
+    /* 4. CMD3 – Ask for Relative Card Address (RCA)            */
+    /*----------------------------------------------------------*/
+    if (SDIO_Send_CMD3(&rca) != 0) {
         LOG_ERROR("CMD3 failed\r\n");
         vTaskDelete(NULL);
     }
-
     LOG_INFO("CMD3 RCA = 0x%08lX\r\n", rca);
 
-    /*============================================================
-     * 5. CMD7 – Select card
-     *===========================================================*/
-    if (SDIO_Send_CMD7(rca) != 0)
-    {
+    /*----------------------------------------------------------*/
+    /* 5. CMD7 – Select Card                                    */
+    /*----------------------------------------------------------*/
+    if (SDIO_Send_CMD7(rca) != 0) {
         LOG_ERROR("CMD7 failed\r\n");
         vTaskDelete(NULL);
     }
-
     LOG_INFO("CMD7: Card selected\r\n");
 
-    /* NEW STEP: Set Block Size */
-    if (SDIO_SetBlockSize() != 0) {
-        LOG_ERROR("Failed to set Block Size\r\n");
+    /*----------------------------------------------------------*/
+    /* 6. Enable Function 1 (IO_ENABLE)                         */
+    /*----------------------------------------------------------*/
+    /* CCCR 0x02: IO Enable Register. Bit 1 = Function 1 Enable */
+    SDIO_Send_CMD52_Write(0, 0x02, 0x02);
+
+    /* Poll IO_READY (CCCR 0x03) until Function 1 is ready */
+    io_ready = 0;
+    int timeout = 100;
+    do {
+        SDIO_Send_CMD52_Read(0, 0x03, &io_ready);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        timeout--;
+    } while ((io_ready & 0x02) == 0 && timeout > 0);
+
+    if (timeout == 0) {
+        LOG_ERROR("Function 1 Enable Timeout\r\n");
+        vTaskDelete(NULL);
+    }
+    LOG_INFO("FN1 IO_READY confirmed\r\n");
+
+    /*----------------------------------------------------------*/
+    /* 7. Set Block Size for Function 1                         */
+    /*----------------------------------------------------------*/
+    /* Standard requirement for Block Mode transfers */
+    SDIO_SetBlockSize(); // Helper function sets 512 bytes
+
+    /*----------------------------------------------------------*/
+    /* 8. Enable Interrupts (CRITICAL STEP)                     */
+    /*----------------------------------------------------------*/
+    /* A. Enable Master Interrupt (IENM) and Fn1 Interrupt (IEN1) in CCCR */
+    SDIO_Send_CMD52_Write(0, 0x04, 0x03); 
+
+    /* B. Enable Interrupt Output in Function 1 Space (The Missing Link) */
+    /* This tells ESP32 firmware to actually drive the D1 line low */
+    SDIO_Send_CMD52_Write(1, 0x04, 0x01); 
+
+    /*----------------------------------------------------------*/
+    /* 9. Switch to 4-bit Bus Width                             */
+    /*----------------------------------------------------------*/
+    /* Tell ESP32 to use 4-bit mode */
+    SDIO_Send_CMD52_Write(0, 0x07, 0x02);
+
+    /* Tell STM32 peripheral to use 4-bit mode */
+    SDMMC1->CLKCR &= ~SDMMC_CLKCR_WIDBUS;
+    SDMMC1->CLKCR |= SDMMC_CLKCR_WIDBUS_0; // 4-bit wide
+
+    /*----------------------------------------------------------*/
+    /* 10. CMD53 Write Test (Byte Mode)                         */
+    /*----------------------------------------------------------*/
+    LOG_INFO("CMD53 Write Test (Byte Mode)...\r\n");
+    if (SDIO_CMD53_Write_ByteMode(1, 0x0000, tx_buffer, 8) == 0) {
+        LOG_INFO("CMD53 WRITE SUCCESS\r\n");
+    } else {
+        LOG_ERROR("CMD53 WRITE FAILED\r\n");
     }
 
-    /*============================================================
-     * 6. Enable Function 1 (CCCR_IO_ENABLE = 0x02)
-     *===========================================================*/
-    SDIO_Send_CMD52_Write(0, 0x02, 0x02); // Enable FN1
-    vTaskDelay(pdMS_TO_TICKS(2));
+    /*----------------------------------------------------------*/
+    /* 11. Wait for Data (MAC Address Packet)                   */
+    /*----------------------------------------------------------*/
+    LOG_INFO("Waiting for ESP32 Data (MAC Address)...\r\n");
 
-    /*============================================================
-     * 7. Enable SDIO interrupts (CCCR_INT_ENABLE = 0x04)
-     *===========================================================*/
-    SDIO_Send_CMD52_Write(0, 0x04, 0x03); // Master + FN1
-    vTaskDelay(pdMS_TO_TICKS(2));
-
-    /*============================================================
-     * 8. Switch card to 4-bit mode (CCCR_BUS_IF_CTRL = 0x07)
-     *===========================================================*/
-    SDIO_Send_CMD52_Write(0, 0x07, 0x02); // 4-bit
-    vTaskDelay(pdMS_TO_TICKS(2));
-
-    /*============================================================
-     * 9. Switch STM32 SDMMC to 4-bit mode
-     *===========================================================*/
-    SDMMC1->CLKCR &= ~SDMMC_CLKCR_WIDBUS;
-    SDMMC1->CLKCR |= SDMMC_CLKCR_WIDBUS_0; // 4-bit
-
-    /*============================================================
-     * 10. Enable SDIO interrupt on STM32 side
-     *===========================================================*/
+    /* Enable Interrupt Mask in STM32 SDMMC Peripheral */
     SDMMC1->MASK |= SDMMC_MASK_SDIOITIE;
 
-    /* Enable Interrupts in ESP32 Slave Register (Address 0x04) */
-    /* This is often required to tell the firmware "Host is Listening" */
-    /* Write 0x01 to register 0x04 of Function 1 */
-    if (SDIO_Send_CMD52_Write(1, 0x04, 0x01) != 0) {
-        LOG_ERROR("Failed to enable Slave INT\r\n");
-    }
-
-    LOG_INFO("SDIO Configured. Starting CMD53 Write Test...\r\n");
-
-    /* working fine till here after this it is getting stuck */
-    // TODO: Fix CMD53 Write issue
-    
-    /* FIX 1: Use 'static' to keep it off the stack (prevents Stack Overflow) */
-    /* FIX 2: Use 'aligned(4)' to prevent Hard Faults */
-    static uint8_t tx_buffer[512] __attribute__((aligned(4))); 
-    
-    memset(tx_buffer, 0xAA, 512); 
-
-    /* FIX 3: Ensure your CMD53_Write function handles the loop correctly */
-    if (SDIO_CMD53_Write(1, 0x1F800, tx_buffer, 512) == 0)
+    while (1)
     {
-        LOG_INFO("CMD53 WRITE SUCCESS! Data sent to ESP32.\r\n");
+        uint8_t int_pending = 0;
+        int has_data = 0;
+
+        /* Check 1: Hardware Interrupt Flag (D1 line dropped) */
+        if (__SDMMC_GET_FLAG(SDMMC1, SDMMC_FLAG_SDIOIT))
+        {
+             __SDMMC_CLEAR_FLAG(SDMMC1, SDMMC_FLAG_SDIOIT);
+             has_data = 1;
+        }
+        
+        /* Check 2: Software Poll (CCCR 0x05) - Backup check */
+        if (!has_data) {
+             SDIO_Send_CMD52_Read(0, 0x05, &int_pending);
+             if (int_pending & 0x02) {
+                 has_data = 1;
+             }
+        }
+
+        if (has_data)
+        {
+            LOG_INFO("Data Available! Reading FIFO...\r\n");
+            
+            memset(tx_buffer, 0, 512);
+
+            /* Read 512 bytes from FIFO Address 0x1F800 */
+            /* Using Block Mode Read */
+            if (SDIO_CMD53_Read(1, 0x1F800, tx_buffer, 512) == 0)
+            {
+                LOG_INFO("Packet Received! Hex Dump (First 64 bytes):\r\n");
+                
+                /* Print Hex Dump to console */
+                for(int i = 0; i < 64; i++) {
+                    printf("%02X ", tx_buffer[i]);
+                    if ((i+1) % 16 == 0) printf("\r\n");
+                }
+                printf("\r\n");
+
+                /* Task complete - we found our packet! */
+                HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_SET); // Orange LED On
+                break; 
+            }
+            else
+            {
+                LOG_ERROR("Read Failed. Retrying...\r\n");
+            }
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
-    else
-    {
-        LOG_ERROR("CMD53 Write Failed.\r\n");
-    }
+
+    LOG_INFO("Handshake Task Complete.\r\n");
     vTaskDelete(NULL);
 }
-  
+ 
 /*******************************************************************************
  * Application Helper Function
  ******************************************************************************/
@@ -478,48 +485,200 @@ static int SDIO_SetBlockSize(void)
 static int SDIO_CMD53_Write(uint8_t fn, uint32_t addr, uint8_t *buffer, uint32_t length)
 {
     SDMMC_DataInitTypeDef config;
-    
-    // 1. Configure Data Path
-    config.DataTimeOut   = SDMMC_DATATIMEOUT;
+    uint32_t timeout;
+
+    /* 1. Clear DATA flags */
+    SDMMC1->ICR = SDMMC_ICR_DATAENDC |
+                  SDMMC_ICR_DCRCFAILC |
+                  SDMMC_ICR_DTIMEOUTC |
+                  SDMMC_ICR_TXUNDERRC |
+                  SDMMC_ICR_RXOVERRC;
+
+    /* 2. Configure DPSM */
+    config.DataTimeOut   = 0xFFFFFFFF;
     config.DataLength    = length;
-    config.DataBlockSize = SDMMC_DATABLOCK_SIZE_512B; 
+    config.DataBlockSize = SDMMC_DATABLOCK_SIZE_512B;
     config.TransferDir   = SDMMC_TRANSFER_DIR_TO_CARD;
     config.TransferMode  = SDMMC_TRANSFER_MODE_BLOCK;
     config.DPSM          = SDMMC_DPSM_ENABLE;
     SDMMC_ConfigData(SDMMC1, &config);
 
-    // 2. Send CMD53
-    // Argument: Write(1) | Fn(x) | Block Mode(1) | OpCode(1=Inc Addr) | Addr(x) | Count(x)
+    /* 3. CMD53 argument */
     uint32_t block_count = length / 512;
-    uint32_t arg = (1UL << 31) | ((fn & 0x7) << 28) | (1UL << 27) | (1UL << 26) | 
-                   ((addr & 0x1FFFF) << 9) | (block_count & 0x1FF);
-                   
+    uint32_t arg =
+        (1UL << 31) |               /* Write */
+        ((fn & 0x7) << 28) |
+        (1UL << 27) |               /* Block mode */
+        (1UL << 26) |               /* Increment address */
+        ((addr & 0x1FFFF) << 9) |
+        (block_count & 0x1FF);
+
     SDMMC1->ARG = arg;
     SDMMC1->CMD = (53U) | SDMMC_CMD_WAITRESP_0 | SDMMC_CMD_CPSMEN;
 
-    // 3. Wait for Command Response (R5)
-    if (SDMMC_WaitCmdDone(SDMMC1, 0) != 0) return -1; // R5 has CRC
+    /* 4. Wait for command response */
+    if (SDMMC_WaitCmdDone(SDMMC1, 0) != 0)
+        return -1;
 
-    // 4. Push Data to FIFO
-    // Note: On H7, it's better to use IDMA. For simple polling:
-    uint32_t *temp_buff = (uint32_t *)buffer;
-    uint32_t count = (length + 3) / 4; // Words
-    
-    while (count > 0)
+    /* 5. TX FIFO write loop */
+    uint32_t *p = (uint32_t *)buffer;
+    uint32_t words = length / 4;
+
+    timeout = 1000000;
+    while (words > 0)
     {
-        // Wait until FIFO has space (Half Empty)
-        if (__SDMMC_GET_FLAG(SDMMC1, SDMMC_FLAG_TXFIFOHE)) { 
-            SDMMC1->FIFO = *temp_buff++;
-            count--;
+        uint32_t sta = SDMMC1->STA;
+
+        if (sta & SDMMC_STA_TXFIFOHE)
+        {
+            SDMMC1->FIFO = *p++;
+            words--;
+            timeout = 1000000;
         }
-        // Optional: Add a timeout break here so you don't hang forever if hardware dies
+        else if (sta & (SDMMC_STA_DCRCFAIL | SDMMC_STA_DTIMEOUT))
+        {
+            return -2;
+        }
+
+        if (--timeout == 0)
+            return -3;
     }
 
-    // 5. Wait for Transfer Complete
-    while (!__SDMMC_GET_FLAG(SDMMC1, SDMMC_FLAG_DATAEND)) {
-       if (__SDMMC_GET_FLAG(SDMMC1, SDMMC_FLAG_DCRCFAIL | SDMMC_FLAG_DTIMEOUT)) return -2;
+    /* 6. Wait for DATAEND */
+    timeout = 1000000;
+    while (!(SDMMC1->STA & SDMMC_STA_DATAEND))
+    {
+        if (SDMMC1->STA & (SDMMC_STA_DCRCFAIL | SDMMC_STA_DTIMEOUT))
+            return -4;
+
+        if (--timeout == 0)
+            return -5;
     }
-    
+
+    SDMMC1->ICR = SDMMC_ICR_DATAENDC;
+    return 0;
+}
+
+static int SDIO_CMD53_Write_ByteMode(uint8_t fn,
+                                    uint32_t addr,
+                                    uint8_t *buffer,
+                                    uint32_t length)
+{
+    SDMMC_DataInitTypeDef data;
+
+    /* 1. Configure data path for BYTE MODE */
+    data.DataTimeOut   = SDMMC_DATATIMEOUT;
+    data.DataLength    = length;
+    data.DataBlockSize = SDMMC_DATABLOCK_SIZE_1B;
+    data.TransferDir   = SDMMC_TRANSFER_DIR_TO_CARD;
+    data.TransferMode  = SDMMC_TRANSFER_MODE_STREAM; // BYTE MODE
+    data.DPSM          = SDMMC_DPSM_ENABLE;
+    SDMMC_ConfigData(SDMMC1, &data);
+
+    /* 2. CMD53 argument:
+       Write | Fn | ByteMode | IncrementAddr | Address | Count
+    */
+    uint32_t arg =
+        (1UL << 31) |                 // Write
+        ((fn & 0x7) << 28) |
+        (0UL << 27) |                 // BYTE MODE
+        (1UL << 26) |                 // Increment address
+        ((addr & 0x1FFFF) << 9) |
+        (length & 0x1FF);             // Byte count
+
+    SDMMC1->ICR = 0xFFFFFFFF;
+    SDMMC1->ARG = arg;
+    SDMMC1->CMD = (53U) | SDMMC_CMD_WAITRESP_0 | SDMMC_CMD_CPSMEN;
+
+    /* 3. Wait for CMD response (R5) */
+    if (SDMMC_WaitCmdDone(SDMMC1, 0) != 0) {
+        LOG_ERROR("CMD53 R5 failed\r\n");
+        return -1;
+    }
+
+    /* 4. Push data */
+    uint32_t timeout = 1000000;
+    uint32_t words = (length + 3) / 4;
+    uint32_t *ptr = (uint32_t *)buffer;
+
+    while (words && timeout--) {
+        if (__SDMMC_GET_FLAG(SDMMC1, SDMMC_FLAG_TXFIFOHE)) {
+            SDMMC1->FIFO = *ptr++;
+            words--;
+        }
+    }
+
+    if (timeout == 0) {
+        LOG_ERROR("CMD53 TX FIFO timeout\r\n");
+        return -2;
+    }
+
+    /* 5. Wait for data end */
+    timeout = 1000000;
+    while (!(SDMMC1->STA & SDMMC_STA_DATAEND) && timeout--) {
+        if (SDMMC1->STA & SDMMC_STA_DTIMEOUT) {
+            LOG_ERROR("CMD53 DTIMEOUT (ESP not driving DAT lines)\r\n");
+            return -3;
+        }
+        if (SDMMC1->STA & SDMMC_STA_DCRCFAIL) {
+            LOG_ERROR("CMD53 DCRCFAIL\r\n");
+            return -4;
+        }
+    }
+
+    SDMMC1->ICR = SDMMC_ICR_DATAENDC;
+    return 0;
+}
+
+static int SDIO_CMD53_Write_BlockMode(uint8_t fn,
+                                     uint32_t addr,
+                                     uint8_t *buffer,
+                                     uint32_t blocks)
+{
+    SDMMC_DataInitTypeDef data;
+
+    data.DataTimeOut   = SDMMC_DATATIMEOUT;
+    data.DataLength    = blocks * 512;
+    data.DataBlockSize = SDMMC_DATABLOCK_SIZE_512B;
+    data.TransferDir   = SDMMC_TRANSFER_DIR_TO_CARD;
+    data.TransferMode  = SDMMC_TRANSFER_MODE_BLOCK;
+    data.DPSM          = SDMMC_DPSM_ENABLE;
+
+    SDMMC_ConfigData(SDMMC1, &data);
+
+    uint32_t arg =
+        (1UL << 31) |
+        ((fn & 0x7) << 28) |
+        (1UL << 27) |           // BLOCK MODE
+        (1UL << 26) |
+        ((addr & 0x1FFFF) << 9) |
+        (blocks & 0x1FF);
+
+    SDMMC1->ARG = arg;
+    SDMMC1->CMD = (53U) | SDMMC_CMD_WAITRESP_0 | SDMMC_CMD_CPSMEN;
+
+    if (SDMMC_WaitCmdDone(SDMMC1, 0) != 0)
+        return -1;
+
+    uint32_t *buf = (uint32_t *)buffer;
+    uint32_t words = blocks * 128;
+
+    while (words)
+    {
+        if (__SDMMC_GET_FLAG(SDMMC1, SDMMC_FLAG_TXFIFOHE))
+        {
+            SDMMC1->FIFO = *buf++;
+            words--;
+        }
+    }
+
+    while (!__SDMMC_GET_FLAG(SDMMC1, SDMMC_FLAG_DATAEND))
+    {
+        if (__SDMMC_GET_FLAG(SDMMC1,
+            SDMMC_FLAG_DCRCFAIL | SDMMC_FLAG_DTIMEOUT))
+            return -2;
+    }
+
     return 0;
 }
 
@@ -562,6 +721,15 @@ static int SDIO_CMD53_Read(uint8_t fn, uint32_t addr, uint8_t *buffer, uint32_t 
     }
     
     return 0;
+}
+
+void print_hex_dump(uint8_t *buffer, uint32_t len) {
+  LOG_INFO("RX DATA (%lu bytes):\r\n", len);
+  for (uint32_t i = 0; i < len; i++) {
+    printf("%02X ", buffer[i]);
+    if ((i + 1) % 16 == 0) printf("\r\n");
+  }
+  printf("\r\n");
 }
 
  /**
