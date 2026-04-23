@@ -163,23 +163,15 @@ ETX_DL_FRAME_EX_ etx_tx_data(int comport_number, ETX_DL_FRAME_ *buffer)
   printf("Sending packet type: %d, length: %d\r\n", buffer->packet_type, buffer->payload_len);
 
   // send (SOF + packet_type + payload_len + payload)
-  for(int i = 0; i < (buffer->payload_len + 4); i++) {
-    if( RS232_SendByte(comport_number, ((uint8_t *)&buffer->sof)[i]) ) {
-      //some data missed.
-      printf("Send Err: %d\n", buffer->packet_type);
-      return ETX_DL_FRAME_EX_ERR;
-    }
-    delay(BYTE_DELAY_US);
+  if( RS232_SendBuf(comport_number, (uint8_t *)&buffer->sof, buffer->payload_len + 4) ) {
+    printf("Send Err: %d\n", buffer->packet_type);
+    return ETX_DL_FRAME_EX_ERR;
   }
 
   // send (CRC + EOF)
-  for(int i = 0; i < 5; i++) {
-    if( RS232_SendByte(comport_number, ((uint8_t *)&buffer->crc)[i]) ) {
-      //some data missed.
-      printf("Send Err: %d\n", buffer->packet_type);
-      return ETX_DL_FRAME_EX_ERR;
-    }
-    delay(BYTE_DELAY_US);
+  if( RS232_SendBuf(comport_number, (uint8_t *)&buffer->crc, 5) ) {
+    printf("Send Err: %d\n", buffer->packet_type);
+    return ETX_DL_FRAME_EX_ERR;
   }
 
   return ETX_DL_FRAME_EX_OK;
@@ -229,7 +221,7 @@ ETX_DL_FRAME_EX_ etx_rx_data(int comport_number, ETX_DL_FRAME_ *buffer)
   }
 
   // check for valid payload length
-  uint16_t payload_len = (((uint8_t *)buffer)[2] << 8) | ((uint8_t *)buffer)[3];
+  uint16_t payload_len = (((uint8_t *)buffer)[3] << 8) | ((uint8_t *)buffer)[2];
   if (payload_len > ETX_FRAME_DATA_MAX_SIZE) {
     return ETX_DL_FRAME_EX_ERR; // Invalid length
   }
@@ -496,7 +488,7 @@ ETX_DL_EX_ etx_send_end_cmd(int comport_number)
   cmd_frame->payload[0] = ETX_DL_CMD_END;
   cmd_frame->payload_len = 1;
 
-  if (etx_send_data(comport_number, cmd_frame, true) != ETX_DL_FRAME_EX_OK) {
+  if (etx_send_data(comport_number, cmd_frame, false) != ETX_DL_FRAME_EX_OK) {
     printf("Failed to send END command\r\n");
     return ETX_DL_EX_ERR;
   }

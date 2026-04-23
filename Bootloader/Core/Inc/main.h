@@ -47,6 +47,8 @@ typedef struct
 extern CRC_HandleTypeDef hcrc;
 extern UART_HandleTypeDef huart2;
 extern UART_HandleTypeDef huart3;
+extern IWDG_HandleTypeDef hiwdg;
+extern DMA_HandleTypeDef hdma_usart2_rx;
 
 // user button 
 #define OTA_BTN_Pin GPIO_PIN_13

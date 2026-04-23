@@ -73,3 +73,13 @@ void SysTick_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32h7xx.s).                    */
 /******************************************************************************/
+
+void DMA1_Stream0_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_usart2_rx);
+}
+
+void USART2_IRQHandler(void)
+{
+  HAL_UART_IRQHandler(&huart2);
+}

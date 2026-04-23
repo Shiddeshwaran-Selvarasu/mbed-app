@@ -1,6 +1,5 @@
 #include "main.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "logger.h"
@@ -27,12 +26,15 @@
 /* Hardware cleanup constants */
 #define NVIC_INTERRUPT_BANKS        8U      /* Number of NVIC interrupt banks */
 
-/* Create a config data in Ram and load data from flash */
-ETX_CONFIG_ *etx_config;
+/* Config storage — static avoids heap dependency in bootloader */
+static ETX_CONFIG_ etx_config_storage;
+ETX_CONFIG_ *etx_config = &etx_config_storage;
 
 CRC_HandleTypeDef hcrc;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
+IWDG_HandleTypeDef hiwdg;
+DMA_HandleTypeDef hdma_usart2_rx;
 
 void SystemClock_Config(void);
 void SystemClock_DeInit(void);
@@ -46,10 +48,13 @@ static void MX_GPIO_DeInit(void);
 static void MX_USART2_UART_DeInit(void);
 static void MX_USART3_UART_DeInit(void);
 static void MX_CRC_DeInit(void);
+static void MX_DMA_Init(void);
+static void MX_DMA_DeInit(void);
+static void MX_IWDG_Init(void);
 
 static void goto_application( void );
-static uint32_t get_application_crc( void );
-static uint32_t verify_application_crc(uint32_t crc_value);
+static int32_t get_application_crc( void );
+static int32_t verify_application_crc(uint32_t crc_value);
 static void validate_config( void );
 
 /**
@@ -64,13 +69,14 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_CRC_Init();
+  MX_IWDG_Init();
 
   LOG_INFO("%s\r\n", BL_VER_STRING);
 
-  etx_config = (ETX_CONFIG_ *)malloc(sizeof(ETX_CONFIG_));
   config_get(etx_config);
 
   validate_config(); // Validate and load configuration
@@ -111,6 +117,7 @@ int main(void)
     LOG_INFO("Press the USER Button to switch to Download Mode...\r\n");
 
     do {
+      HAL_IWDG_Refresh(&hiwdg);
       ota_pin_state = HAL_GPIO_ReadPin(OTA_BTN_GPIO_Port, OTA_BTN_Pin);
 
       if (ota_pin_state == GPIO_PIN_SET || HAL_GetTick() > timeout) {
@@ -145,14 +152,14 @@ int main(void)
   /*********************** Initiate Jump to application - START ************************/
 
   if (etx_config->is_app_flashed) {
-    uint32_t app_crc = get_application_crc();
+    int32_t app_crc = get_application_crc();
     if (app_crc < 0) {
-      LOG_ERROR("Failed to get application CRC. Error code: %d\r\n", app_crc);
+      LOG_ERROR("Failed to get application CRC. Error code: %ld\r\n", app_crc);
       etx_config->is_app_bootable = false;
     } else {
       LOG_INFO("Application CRC: 0x%08lX\r\n", app_crc);
       LOG_INFO("Verifying application CRC...\r\n");
-      int verify_status = verify_application_crc((uint32_t)app_crc);
+      int32_t verify_status = verify_application_crc((uint32_t)app_crc);
       if (verify_status == 0) {
         LOG_INFO("CRC verified successfully...\r\n");
         LOG_INFO("Loading application...\r\n");
@@ -174,6 +181,7 @@ int main(void)
 
   while (1)
   {
+    HAL_IWDG_Refresh(&hiwdg);
     HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin); // Application jump failed
     HAL_Delay(BOOTLOADER_LED_DELAY_MS);
   }
@@ -195,6 +203,7 @@ static void goto_application( void )
   
   /* Reset the peripherals */
   MX_USART2_UART_DeInit();
+  MX_DMA_DeInit();
   MX_USART3_UART_DeInit();
   MX_CRC_DeInit();
   MX_GPIO_DeInit();
@@ -251,19 +260,15 @@ static void goto_application( void )
  * @param  None
  * @retval CRC value (32-bit integer) or negative values on error
  */
-static uint32_t get_application_crc( void )
+static int32_t get_application_crc( void )
 {
-  uint32_t *app_crc = (uint32_t *)&etx_config->app_crc;
+  uint32_t crc_val = etx_config->app_crc;
 
-  if (app_crc == NULL) {
-    return -1; // Invalid address
-  }
-
-  if (*app_crc == 0xFFFFFFFF || *app_crc == 0x00000000) {
+  if (crc_val == 0xFFFFFFFF || crc_val == 0x00000000) {
     return -2; // Invalid CRC value
   }
 
-  return *app_crc;
+  return (int32_t)crc_val;
 }
 
 /**
@@ -271,15 +276,15 @@ static uint32_t get_application_crc( void )
  * @param  crc_value: The expected CRC value to compare against
  * @retval 0 if CRC matches, negative values on error
  */
-static uint32_t verify_application_crc(uint32_t crc_value)
+static int32_t verify_application_crc(uint32_t crc_value)
 {
   if (crc_value == 0xFFFFFFFF || crc_value == 0x00000000) {
     return -2; // Invalid CRC value
   }
 
   // Calculate CRC over application data using STM32 hardware CRC peripheral
-  uint32_t data_size_bytes = etx_config->app_size; 
-  
+  uint32_t data_size_bytes = etx_config->app_size;
+
   uint32_t computed_crc = compute_crc32(&hcrc, (uint32_t *)APPLICATION_ADDRESS, data_size_bytes);
 
   if (computed_crc != crc_value) {
@@ -423,6 +428,10 @@ static void MX_USART2_UART_Init(void)
   huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
   huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
   if (HAL_UART_Init(&huart2) != HAL_OK) Error_Handler();
+
+  /* UART2 global interrupt needed for IDLE line detection with DMA */
+  HAL_NVIC_SetPriority(USART2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(USART2_IRQn);
 }
 
 /**
@@ -503,6 +512,43 @@ static void MX_CRC_DeInit(void)
 {
   if (HAL_CRC_DeInit(&hcrc) != HAL_OK) Error_Handler();
   __HAL_RCC_CRC_CLK_DISABLE();
+}
+
+/**
+  * @brief DMA Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DMA_Init(void)
+{
+  __HAL_RCC_DMA1_CLK_ENABLE();
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+}
+
+/**
+  * @brief DMA Deinitialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DMA_DeInit(void)
+{
+  HAL_NVIC_DisableIRQ(DMA1_Stream0_IRQn);
+  __HAL_RCC_DMA1_CLK_DISABLE();
+}
+
+/**
+  * @brief IWDG Initialization Function (30s timeout at LSI ~32kHz)
+  * @param None
+  * @retval None
+  */
+static void MX_IWDG_Init(void)
+{
+  hiwdg.Instance = IWDG1;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_256;  /* 32kHz / 256 = 125Hz */
+  hiwdg.Init.Reload = 3750U;                  /* 3750 / 125Hz = 30s */
+  hiwdg.Init.Window = IWDG_WINDOW_DISABLE;
+  if (HAL_IWDG_Init(&hiwdg) != HAL_OK) Error_Handler();
 }
 
 /**

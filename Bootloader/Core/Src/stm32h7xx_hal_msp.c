@@ -40,6 +40,20 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* DMA RX setup: DMA1 Stream0, USART2_RX via DMAMUX1 */
+    hdma_usart2_rx.Instance                 = DMA1_Stream0;
+    hdma_usart2_rx.Init.Request             = DMA_REQUEST_USART2_RX;
+    hdma_usart2_rx.Init.Direction           = DMA_PERIPH_TO_MEMORY;
+    hdma_usart2_rx.Init.PeriphInc           = DMA_PINC_DISABLE;
+    hdma_usart2_rx.Init.MemInc              = DMA_MINC_ENABLE;
+    hdma_usart2_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+    hdma_usart2_rx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
+    hdma_usart2_rx.Init.Mode                = DMA_NORMAL;
+    hdma_usart2_rx.Init.Priority            = DMA_PRIORITY_HIGH;
+    hdma_usart2_rx.Init.FIFOMode            = DMA_FIFOMODE_DISABLE;
+    if (HAL_DMA_Init(&hdma_usart2_rx) != HAL_OK) Error_Handler();
+    __HAL_LINKDMA(huart, hdmarx, hdma_usart2_rx);
   }
   else if(huart->Instance==USART3)
   {
@@ -99,6 +113,8 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
     PA3     ------> USART2_RX
     */
     HAL_GPIO_DeInit(GPIOA, USART2_TX_Pin|USART2_RX_Pin);
+
+    HAL_DMA_DeInit(huart->hdmarx);
   }
   else if(huart->Instance==USART3)
   {
