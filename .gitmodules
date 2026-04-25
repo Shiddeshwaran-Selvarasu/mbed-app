@@ -1,3 +1,6 @@
 [submodule "App/FreeRTOS"]
 	path = App/FreeRTOS
 	url = git@github.com:FreeRTOS/FreeRTOS-Kernel.git
+[submodule "App/esp-idf"]
+	path = App/esp-idf
+	url = https://github.com/espressif/esp-idf.git

@@ -37,7 +37,32 @@ INCLUDES = -ICore/Inc \
 		   -IDrivers/CMSIS/Device/ST/STM32H7xx/Include \
 		   -IFreeRTOS/portable/GCC/ARM_CM7/r0p1 \
 		   -IFreeRTOS/portable/MemMang \
-		   -IFreeRTOS/include
+		   -IFreeRTOS/include \
+		   -IESP-Hosted \
+		   -IESP-Hosted/api/include \
+		   -IESP-Hosted/api/priv \
+		   -IESP-Hosted/drivers/rpc/core \
+		   -IESP-Hosted/drivers/rpc/slaveif \
+		   -IESP-Hosted/drivers/rpc/wrap \
+		   -IESP-Hosted/drivers/serial \
+		   -IESP-Hosted/drivers/mempool \
+		   -IESP-Hosted/drivers/transport \
+		   -IESP-Hosted/drivers/transport/sdio \
+		   -IESP-Hosted/drivers/virtual_serial_if \
+		   -IESP-Hosted/port/stm32 \
+		   -Iesp-idf/components/esp_common/include \
+		   -Iesp-idf/components/esp_hw_support/include \
+		   -Iesp-idf/components/esp_wifi/include \
+		   -Iesp-idf/components/esp_netif/include \
+		   -Iesp-idf/components/esp_event/include \
+		   -Iesp-idf/components/esp_system/include \
+		   -Iesp-idf/components/esp_timer/include \
+		   -Iesp-idf/components/log/include \
+		   -Iesp-idf/components/wpa_supplicant/include \
+		   -Iesp-idf/components/esp_rom/include \
+		   -Iesp-idf/components/soc/esp32/include \
+		   -Iesp-idf/components/freertos/FreeRTOS-Kernel-SMP/include/freertos \
+		   -Iesp-idf/components/esp_coex/include 
 
 # =====================
 # Compiler Flags
@@ -76,7 +101,7 @@ all: $(BIN)
 # =====================
 # vpath for source files
 # =====================
-vpath %.c Core/Src Common/Src Core/Overrides Drivers/STM32H7xx_HAL_Driver/Src Drivers/CMSIS/Device/ST/STM32H7xx/Source Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates FreeRTOS FreeRTOS/portable/GCC/ARM_CM7/r0p1 FreeRTOS/portable/MemMang
+vpath %.c Core/Src Common/Src Core/Overrides Drivers/STM32H7xx_HAL_Driver/Src Drivers/CMSIS/Device/ST/STM32H7xx/Source Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates FreeRTOS FreeRTOS/portable/GCC/ARM_CM7/r0p1 FreeRTOS/portable/MemMang ESP-Hosted/utils ESP-Hosted/port/esp/freertos/src ESP-Hosted/drivers/transport ESP-Hosted/drivers/transport/spi_hd ESP-Hosted/drivers/transport/sdio ESP-Hosted/drivers/transport/spi ESP-Hosted/drivers/transport/uart ESP-Hosted/drivers/power_save ESP-Hosted/drivers/virtual_serial_if ESP-Hosted/drivers/serial ESP-Hosted/drivers/bt ESP-Hosted/drivers/mempool ESP-Hosted/drivers/rpc/wrap ESP-Hosted/drivers/rpc/core ESP-Hosted/drivers/rpc/slaveif ESP-Hosted/api/src
 vpath %.s Core/Startup
 
 # =====================
