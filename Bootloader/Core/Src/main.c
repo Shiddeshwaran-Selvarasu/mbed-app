@@ -53,7 +53,7 @@ static void MX_DMA_DeInit(void);
 static void MX_IWDG_Init(void);
 
 static void goto_application( void );
-static int32_t get_application_crc( void );
+static bool get_application_crc(uint32_t *out_crc);
 static int32_t verify_application_crc(uint32_t crc_value);
 static void validate_config( void );
 
@@ -152,14 +152,14 @@ int main(void)
   /*********************** Initiate Jump to application - START ************************/
 
   if (etx_config->is_app_flashed) {
-    int32_t app_crc = get_application_crc();
-    if (app_crc < 0) {
-      LOG_ERROR("Failed to get application CRC. Error code: %ld\r\n", app_crc);
+    uint32_t app_crc;
+    if (!get_application_crc(&app_crc)) {
+      LOG_ERROR("Failed to get application CRC (no valid CRC stored)\r\n");
       etx_config->is_app_bootable = false;
     } else {
       LOG_INFO("Application CRC: 0x%08lX\r\n", app_crc);
       LOG_INFO("Verifying application CRC...\r\n");
-      int32_t verify_status = verify_application_crc((uint32_t)app_crc);
+      int32_t verify_status = verify_application_crc(app_crc);
       if (verify_status == 0) {
         LOG_INFO("CRC verified successfully...\r\n");
         LOG_INFO("Loading application...\r\n");
@@ -260,15 +260,18 @@ static void goto_application( void )
  * @param  None
  * @retval CRC value (32-bit integer) or negative values on error
  */
-static int32_t get_application_crc( void )
+static bool get_application_crc(uint32_t *out_crc)
 {
+  if (out_crc == NULL) return false;
   uint32_t crc_val = etx_config->app_crc;
 
-  if (crc_val == 0xFFFFFFFF || crc_val == 0x00000000) {
-    return -2; // Invalid CRC value
+  /* 0 and 0xFFFFFFFF are reserved sentinels for "no app flashed" / "erased flash" */
+  if (crc_val == 0xFFFFFFFFU || crc_val == 0x00000000U) {
+    return false;
   }
 
-  return (int32_t)crc_val;
+  *out_crc = crc_val;
+  return true;
 }
 
 /**

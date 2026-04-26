@@ -21,6 +21,7 @@
 #define GREEN_LED_TOGGLE_PERIOD_MS   500U   /* Toggle every 0.5 second */
 #define ORANGE_LED_TOGGLE_PERIOD_MS  1000U  /* Toggle every 1 second */
 #define RED_LED_TOGGLE_PERIOD_MS     1500U  /* Toggle every 1.5 second */
+#define WATCHDOG_REFRESH_PERIOD_MS   5000U  /* Refresh every 5s; bootloader IWDG timeout is 30s */
 
 /* FreeRTOS failure handling */
 #define FREERTOS_FAILURE_TIMEOUT_MS  5000U  /* 5 seconds delay */
@@ -30,6 +31,10 @@
 #define BOOTLOADER_BASE_ADDRESS      0x08000000UL
 
 UART_HandleTypeDef huart3;
+
+/* IWDG handle — IWDG was started by the bootloader and cannot be stopped.
+ * We only need .Instance set so HAL_IWDG_Refresh can write the reload key. */
+static IWDG_HandleTypeDef hiwdg = { .Instance = IWDG1 };
 
 void SystemClock_Config(void);
 
@@ -43,6 +48,7 @@ static void vTaskApplicationMain(void *pvParameters);
 static void vTaskGreenBlink(void *pvParameters);
 static void vTaskOrangeBlink(void *pvParameters);
 static void vTaskRedBlink(void *pvParameters);
+static void vTaskWatchdog(void *pvParameters);
 
 static void shutdown( void );
 
@@ -83,6 +89,8 @@ int main(void)
   xTaskCreate(vTaskGreenBlink, "Green Blink Task", 256, NULL, 2, NULL);
   xTaskCreate(vTaskOrangeBlink, "Orange Blink Task", 256, NULL, 2, NULL);
   xTaskCreate(vTaskRedBlink, "Red Blink Task", 256, NULL, 2, NULL);
+  /* Highest priority so it always runs even under load. */
+  xTaskCreate(vTaskWatchdog, "Watchdog Task", 128, NULL, 3, NULL);
 
   LOG_INFO("Starting FreeRTOS scheduler...\r\n");
   LOG_INFO("SystemCoreClock = %lu Hz\r\n", SystemCoreClock);
@@ -161,6 +169,21 @@ static void vTaskRedBlink(void *pvParameters)
   {
     HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
     vTaskDelay(pdMS_TO_TICKS(RED_LED_TOGGLE_PERIOD_MS));
+  }
+}
+
+/**
+  * @brief  Function implementing the Watchdog refresh thread.
+  *         Bootloader started IWDG with a 30s timeout; we refresh every 5s.
+  * @param  pvParameters not used
+  * @retval None
+  */
+static void vTaskWatchdog(void *pvParameters)
+{
+  while (1)
+  {
+    HAL_IWDG_Refresh(&hiwdg);
+    vTaskDelay(pdMS_TO_TICKS(WATCHDOG_REFRESH_PERIOD_MS));
   }
 }
 

@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Firmware Flash Flow — Animated Walkthrough</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a2e;
+    --panel-2: #1b2440;
+    --ink: #e6ecff;
+    --ink-dim: #93a3c8;
+    --accent: #4ea1ff;
+    --accent-warm: #ffb84e;
+    --accent-good: #4eff9a;
+    --accent-bad: #ff5e7a;
+    --wire: #2d3a5e;
+    --bank-bl: #5c6cff;
+    --bank-app: #2bd4a3;
+    --shadow: 0 10px 30px rgba(0,0,0,0.4);
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: linear-gradient(180deg, #0b1020 0%, #0f1730 100%);
+    color: var(--ink);
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  header {
+    max-width: 1280px;
+    margin: 0 auto 24px;
+  }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 6px;
+    letter-spacing: -0.3px;
+  }
+  .subtitle {
+    color: var(--ink-dim);
+    font-size: 15px;
+    margin-bottom: 0;
+  }
+
+  .layout {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 20px;
+  }
+
+  .stage-wrap {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .step-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--panel-2);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+  }
+  .step-num {
+    background: var(--accent);
+    color: #001;
+    font-weight: 700;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .step-text {
+    flex: 1;
+    font-size: 15px;
+    line-height: 1.4;
+  }
+  .step-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .step-desc {
+    color: var(--ink-dim);
+    font-size: 13px;
+  }
+
+  .stage {
+    position: relative;
+    height: 360px;
+    background: linear-gradient(180deg, #0a0f24 0%, #0d1430 100%);
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.04);
+    overflow: hidden;
+  }
+
+  /* Computer */
+  .computer {
+    position: absolute;
+    left: 30px;
+    top: 80px;
+    width: 220px;
+    height: 200px;
+  }
+  .monitor {
+    width: 220px;
+    height: 140px;
+    background: #1a2444;
+    border-radius: 8px;
+    border: 2px solid #2a3554;
+    padding: 10px;
+    position: relative;
+  }
+  .monitor::after {
+    content: '';
+    position: absolute;
+    bottom: -16px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 12px;
+    background: #2a3554;
+    border-radius: 0 0 6px 6px;
+  }
+  .screen {
+    width: 100%;
+    height: 100%;
+    background: #060b1a;
+    border-radius: 4px;
+    padding: 8px;
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 10px;
+    color: var(--accent-good);
+    overflow: hidden;
+    line-height: 1.5;
+  }
+  .screen-line { opacity: 0; transition: opacity 0.3s; }
+  .screen-line.visible { opacity: 1; }
+  .device-label {
+    text-align: center;
+    margin-top: 28px;
+    font-size: 12px;
+    color: var(--ink-dim);
+    font-weight: 600;
+  }
+
+  /* Board */
+  .board {
+    position: absolute;
+    right: 30px;
+    top: 60px;
+    width: 280px;
+    height: 240px;
+    background: #2c4023;
+    border-radius: 8px;
+    border: 2px solid #4a6638;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .board-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #b8d4a3;
+    margin-bottom: 6px;
+    text-align: center;
+    letter-spacing: 0.5px;
+  }
+  .chip {
+    background: #1a2814;
+    border: 1px solid #3a4f2d;
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 10px;
+    color: #c5d6b3;
+    text-align: center;
+    font-weight: 600;
+  }
+  .leds {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 4px;
+  }
+  .led {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #1a2814;
+    border: 1px solid #3a4f2d;
+    transition: all 0.15s;
+  }
+  .led.on.green { background: #4eff9a; box-shadow: 0 0 12px #4eff9a; }
+  .led.on.orange { background: #ffb84e; box-shadow: 0 0 12px #ffb84e; }
+  .led.on.red { background: #ff5e7a; box-shadow: 0 0 12px #ff5e7a; }
+
+  /* Flash banks */
+  .flash {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .bank {
+    flex: 1;
+    background: #1a2814;
+    border: 1px solid #3a4f2d;
+    border-radius: 4px;
+    padding: 4px;
+  }
+  .bank-label {
+    font-size: 8px;
+    color: #8aa07a;
+    text-align: center;
+    margin-bottom: 3px;
+  }
+  .sectors {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 1px;
+    height: 18px;
+  }
+  .sector {
+    background: #2a3a20;
+    transition: background 0.4s;
+  }
+  .sector.bl { background: var(--bank-bl); }
+  .sector.app { background: var(--bank-app); }
+  .sector.config { background: var(--accent-warm); }
+  .sector.erasing { background: var(--accent-bad); animation: pulse 0.5s; }
+  .sector.writing { background: var(--accent-good); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* Cable */
+  .cable {
+    position: absolute;
+    top: 175px;
+    left: 250px;
+    right: 310px;
+    height: 4px;
+    background: var(--wire);
+    border-radius: 2px;
+  }
+  .cable-label {
+    position: absolute;
+    top: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--ink-dim);
+    white-space: nowrap;
+  }
+
+  /* Packets */
+  .packet {
+    position: absolute;
+    top: 168px;
+    height: 18px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: #001;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: left 0.8s linear, opacity 0.3s;
+    z-index: 5;
+    white-space: nowrap;
+    padding: 0 6px;
+  }
+  .packet.start  { background: var(--accent-warm); }
+  .packet.header { background: var(--accent); color: #fff; }
+  .packet.data   { background: var(--bank-app); }
+  .packet.end    { background: var(--accent-warm); }
+  .packet.ack    { background: var(--accent-good); }
+  .packet.nack   { background: var(--accent-bad); color: #fff; }
+
+  .state-badge {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background: rgba(78, 161, 255, 0.15);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+
+  /* Side panel */
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .controls {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+  }
+  .control-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 10px;
+  }
+  .button-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  button {
+    flex: 1;
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid rgba(255,255,255,0.06);
+    padding: 9px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  button:hover { background: var(--accent); color: #001; }
+  button:active { transform: scale(0.97); }
+
+  .speed-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .speed-row label {
+    font-size: 12px;
+    color: var(--ink-dim);
+    flex-shrink: 0;
+  }
+  input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+  }
+
+  /* Log panels */
+  .logs {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .log-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .log-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-good);
+  }
+  .log-content {
+    background: #060b1a;
+    border-radius: 8px;
+    padding: 10px;
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--ink);
+    flex: 1;
+    overflow-y: auto;
+    max-height: 280px;
+    min-height: 240px;
+  }
+  .log-line { margin-bottom: 2px; }
+  .log-line.info { color: var(--accent); }
+  .log-line.ok { color: var(--accent-good); }
+  .log-line.warn { color: var(--accent-warm); }
+  .log-line.err { color: var(--accent-bad); }
+
+  /* Legend */
+  .legend {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    box-shadow: var(--shadow);
+    margin-top: 16px;
+    max-width: 1280px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .legend-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 10px;
+  }
+  .legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+  .swatch {
+    width: 20px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  /* Progress bar */
+  .progress-wrap {
+    background: var(--panel-2);
+    border-radius: 6px;
+    height: 6px;
+    margin-top: 12px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--bank-app));
+    transition: width 0.3s;
+  }
+
+  @media (max-width: 980px) {
+    .layout { grid-template-columns: 1fr; }
+    .computer { left: 10px; width: 180px; }
+    .monitor { width: 180px; }
+    .board { right: 10px; width: 220px; }
+    .cable { left: 195px; right: 235px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Firmware Flash — Animated Walkthrough</h1>
+  <p class="subtitle">How a new application gets loaded onto the STM32 board, step by step. No technical background needed.</p>
+  <a href="FLOW_DMA.html" style="display:inline-block;margin-top:8px;color:#4ea1ff;text-decoration:none;font-size:13px">
+    Deep-dive: how DMA works internally →
+  </a>
+</header>
+
+<div class="layout">
+  <div class="stage-wrap">
+    <div class="step-banner">
+      <div class="step-num" id="stepNum">0</div>
+      <div class="step-text">
+        <div class="step-title" id="stepTitle">Press Play to begin</div>
+        <div class="step-desc" id="stepDesc">Watch how the computer talks to the chip and installs new software.</div>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <!-- Computer -->
+      <div class="computer">
+        <div class="monitor">
+          <div class="screen" id="screen">
+            <div class="screen-line" id="sl1">$ HostFlashApp</div>
+            <div class="screen-line" id="sl2">Opening port…</div>
+            <div class="screen-line" id="sl3">Sending START…</div>
+            <div class="screen-line" id="sl4">Sending HEADER…</div>
+            <div class="screen-line" id="sl5">Sending DATA…</div>
+            <div class="screen-line" id="sl6">Sending END…</div>
+            <div class="screen-line" id="sl7">SUCCESS!</div>
+          </div>
+        </div>
+        <div class="device-label">Your Computer<br><span style="font-size:10px;opacity:0.7">(HostFlashApp)</span></div>
+      </div>
+
+      <!-- Cable -->
+      <div class="cable">
+        <div class="cable-label">USB-Serial cable (115 200 baud)</div>
+      </div>
+
+      <!-- Board -->
+      <div class="board">
+        <div class="board-title">STM32 NUCLEO-H755ZI-Q</div>
+        <div class="chip" id="chipLabel">CPU: idle</div>
+        <div>
+          <div class="bank-label" style="text-align:left;font-size:9px;color:#8aa07a;margin-bottom:2px">Flash Memory</div>
+          <div class="flash">
+            <div class="bank">
+              <div class="bank-label">Bank 1 — Bootloader</div>
+              <div class="sectors" id="bank1">
+                <div class="sector bl"></div><div class="sector bl"></div>
+                <div class="sector"></div><div class="sector config"></div>
+                <div class="sector"></div><div class="sector"></div>
+                <div class="sector"></div><div class="sector"></div>
+              </div>
+            </div>
+            <div class="bank">
+              <div class="bank-label">Bank 2 — Application</div>
+              <div class="sectors" id="bank2">
+                <div class="sector"></div><div class="sector"></div>
+                <div class="sector"></div><div class="sector"></div>
+                <div class="sector"></div><div class="sector"></div>
+                <div class="sector"></div><div class="sector"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:9px;color:#8aa07a;text-align:center;margin-bottom:4px">LEDs</div>
+          <div class="leds">
+            <div class="led" id="led1"></div>
+            <div class="led" id="led2"></div>
+            <div class="led" id="led3"></div>
+          </div>
+        </div>
+        <div style="text-align:center;font-size:9px;color:#8aa07a">Watchdog: <span id="wd">30 s</span></div>
+      </div>
+
+      <div class="state-badge" id="stateBadge">— OFF —</div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-bar" id="progress"></div>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="controls">
+      <div class="control-title">Controls</div>
+      <div class="button-row">
+        <button onclick="play()">▶ Play</button>
+        <button onclick="pause()">⏸ Pause</button>
+        <button onclick="restart()">↻ Restart</button>
+      </div>
+      <div class="button-row">
+        <button onclick="step()">Step ▸</button>
+      </div>
+      <div class="speed-row">
+        <label>Speed</label>
+        <input type="range" id="speed" min="0.3" max="3" step="0.1" value="1" oninput="updateSpeed()">
+        <span id="speedLabel">1.0×</span>
+      </div>
+    </div>
+
+    <div class="logs">
+      <div class="log-title"><span class="log-dot" style="background:#4eff9a"></span>Bootloader log</div>
+      <div class="log-content" id="blLog"></div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-title">Legend</div>
+  <div class="legend-grid">
+    <div class="legend-item"><div class="swatch" style="background:#5c6cff"></div>Bootloader code</div>
+    <div class="legend-item"><div class="swatch" style="background:#ffb84e"></div>Configuration block</div>
+    <div class="legend-item"><div class="swatch" style="background:#2bd4a3"></div>Application (your code)</div>
+    <div class="legend-item"><div class="swatch" style="background:#ff5e7a"></div>Erasing</div>
+    <div class="legend-item"><div class="swatch" style="background:#4eff9a"></div>ACK packet (yes!)</div>
+    <div class="legend-item"><div class="swatch" style="background:#4ea1ff"></div>Header packet</div>
+  </div>
+</div>
+
+<script>
+  /* ───────── animation state ───────── */
+  let speed = 1.0;
+  let stepIndex = 0;
+  let timeoutHandle = null;
+  let isPlaying = false;
+
+  const stage = document.getElementById('stage');
+  const stepNum = document.getElementById('stepNum');
+  const stepTitle = document.getElementById('stepTitle');
+  const stepDesc = document.getElementById('stepDesc');
+  const stateBadge = document.getElementById('stateBadge');
+  const chipLabel = document.getElementById('chipLabel');
+  const progress = document.getElementById('progress');
+  const blLog = document.getElementById('blLog');
+  const speedSlider = document.getElementById('speed');
+  const speedLabel = document.getElementById('speedLabel');
+
+  function delay(ms) {
+    return new Promise(resolve => {
+      timeoutHandle = setTimeout(resolve, ms / speed);
+    });
+  }
+
+  function setStep(n, title, desc) {
+    stepNum.textContent = n;
+    stepTitle.textContent = title;
+    stepDesc.textContent = desc;
+  }
+
+  function setState(label, color) {
+    stateBadge.textContent = '— ' + label + ' —';
+    if (color) {
+      stateBadge.style.color = color;
+      stateBadge.style.borderColor = color;
+      stateBadge.style.background = color + '22';
+    }
+  }
+
+  function setChip(text) { chipLabel.textContent = text; }
+
+  function setLED(id, on, color) {
+    const el = document.getElementById(id);
+    el.classList.remove('on', 'green', 'orange', 'red');
+    if (on) {
+      el.classList.add('on');
+      if (color) el.classList.add(color);
+    }
+  }
+
+  function setProgress(pct) {
+    progress.style.width = pct + '%';
+  }
+
+  function showScreenLine(id) {
+    document.getElementById(id).classList.add('visible');
+  }
+  function hideAllScreenLines() {
+    for (let i = 1; i <= 7; i++)
+      document.getElementById('sl'+i).classList.remove('visible');
+  }
+
+  function blLogLine(text, cls) {
+    const div = document.createElement('div');
+    div.className = 'log-line ' + (cls || 'info');
+    div.textContent = text;
+    blLog.appendChild(div);
+    blLog.scrollTop = blLog.scrollHeight;
+  }
+  function clearLog() { blLog.innerHTML = ''; }
+
+  /* fly a packet across the cable */
+  async function flyPacket(label, cls, direction, durMs = 900) {
+    const pkt = document.createElement('div');
+    pkt.className = 'packet ' + cls;
+    pkt.textContent = label;
+    if (direction === 'right') {
+      pkt.style.left = '255px';
+      pkt.style.transition = `left ${durMs/speed}ms linear, opacity 0.3s`;
+    } else {
+      pkt.style.left = 'calc(100% - 320px)';
+      pkt.style.transition = `left ${durMs/speed}ms linear, opacity 0.3s`;
+    }
+    stage.appendChild(pkt);
+    await delay(40);
+    if (direction === 'right') {
+      pkt.style.left = 'calc(100% - 320px)';
+    } else {
+      pkt.style.left = '255px';
+    }
+    await delay(durMs);
+    pkt.style.opacity = '0';
+    await delay(300);
+    pkt.remove();
+  }
+
+  /* paint sector during write */
+  function paintSector(bank, idx, cls) {
+    const sectors = document.getElementById(bank).children;
+    if (idx < sectors.length) {
+      sectors[idx].className = 'sector ' + cls;
+    }
+  }
+  function clearBank2() {
+    const s = document.getElementById('bank2').children;
+    for (let i = 0; i < s.length; i++) s[i].className = 'sector';
+  }
+  async function eraseBank2() {
+    const s = document.getElementById('bank2').children;
+    for (let i = 0; i < s.length; i++) {
+      s[i].classList.add('erasing');
+      await delay(80);
+    }
+    await delay(200);
+    for (let i = 0; i < s.length; i++) s[i].className = 'sector';
+  }
+
+  /* full reset of the stage */
+  function resetScene() {
+    clearLog();
+    hideAllScreenLines();
+    clearBank2();
+    setLED('led1', false);
+    setLED('led2', false);
+    setLED('led3', false);
+    setProgress(0);
+    setChip('CPU: idle');
+    setState('OFF', '#93a3c8');
+    document.querySelectorAll('.packet').forEach(p => p.remove());
+  }
+
+  /* ───────── the script of steps ───────── */
+  const steps = [
+    /* 0 */ async () => {
+      setStep(1, 'Power on the board',
+        'The chip wakes up and runs the Bootloader first — a small program whose only job is to decide whether to install new software or run the existing one.');
+      setState('POWER ON', '#ffb84e');
+      setChip('CPU: Bootloader running');
+      blLogLine('[INFO] Bootloader v3.1.8 starting…', 'info');
+      await delay(800);
+      setLED('led3', true, 'red');
+      await delay(400);
+    },
+
+    /* 1 */ async () => {
+      setStep(2, 'No application found yet',
+        'The Bootloader checks its flash memory: there is no valid app to run. So it waits for someone to send one.');
+      blLogLine('[INFO] First-time boot — no app installed', 'warn');
+      blLogLine('[INFO] Waiting for download…', 'info');
+      setState('WAITING', '#4ea1ff');
+      await delay(1000);
+    },
+
+    /* 2 */ async () => {
+      setStep(3, 'Computer connects',
+        'The user runs the HostFlashApp tool on their PC. It opens the USB-Serial cable to the board and gets ready to send the new firmware.');
+      showScreenLine('sl1');
+      await delay(400);
+      showScreenLine('sl2');
+      await delay(800);
+    },
+
+    /* 3 */ async () => {
+      setStep(4, 'Send "START" command',
+        'The first packet is a tiny "hello, here comes new firmware" message. Each packet has a Start marker, the message, a checksum, and an End marker.');
+      showScreenLine('sl3');
+      await flyPacket('START 10B', 'start', 'right', 1000);
+      blLogLine('[INFO] Received START command', 'ok');
+      setState('HEADER', '#4ea1ff');
+      await delay(300);
+    },
+
+    /* 4 */ async () => {
+      setStep(5, 'Bootloader says "OK"',
+        'The Bootloader checks the packet, sees it is valid, and replies with a 4-byte ACK ("acknowledged"). The conversation is now established.');
+      await flyPacket('ACK 4B', 'ack', 'left', 800);
+      await delay(400);
+    },
+
+    /* 5 */ async () => {
+      setStep(6, 'Send the file size and signature',
+        'Next, the computer announces how big the file is (about 126 KB) and sends a "fingerprint" (CRC) so the board can later verify the data arrived intact.');
+      showScreenLine('sl4');
+      await flyPacket('HEADER size+crc', 'header', 'right', 1000);
+      blLogLine('[INFO] Header: 126032 bytes, CRC=0xA83CB6E8', 'ok');
+      setState('DATA', '#4ea1ff');
+      await delay(300);
+    },
+
+    /* 6 */ async () => {
+      setStep(7, 'Bootloader prepares the storage',
+        'Before writing, the Bootloader has to wipe the area where the new app will live (Bank 2). Watch the sectors flash red — that is the erase happening.');
+      await flyPacket('ACK 4B', 'ack', 'left', 800);
+      blLogLine('[INFO] Erasing Bank 2…', 'warn');
+      setProgress(5);
+      await eraseBank2();
+      blLogLine('[INFO] Bank 2 erased', 'ok');
+      await delay(300);
+    },
+
+    /* 7 */ async () => {
+      setStep(8, 'Send the firmware in chunks',
+        'The file is too big for one packet, so it is split into chunks of 10 KB each. The computer sends one chunk, waits for ACK, then sends the next.');
+      showScreenLine('sl5');
+
+      const chunks = 8;
+      for (let i = 0; i < chunks; i++) {
+        await flyPacket(`DATA #${i+1}`, 'data', 'right', 700);
+        paintSector('bank2', i, 'app');
+        blLogLine(`[INFO] Wrote fragment ${i+1}/${chunks} to flash`, 'ok');
+        setProgress(10 + (i+1) / chunks * 75);
+        await flyPacket('ACK', 'ack', 'left', 500);
+      }
+      await delay(400);
+    },
+
+    /* 8 */ async () => {
+      setStep(9, 'Send "END" — we are done',
+        'Once every chunk is written, the computer sends a final END command. The Bootloader saves the size and CRC fingerprint into its tiny config block.');
+      showScreenLine('sl6');
+      await flyPacket('END 10B', 'end', 'right', 900);
+      blLogLine('[INFO] END received — saving config', 'info');
+      setState('SUCCESS', '#4eff9a');
+      await flyPacket('ACK', 'ack', 'left', 700);
+      setProgress(90);
+      await delay(400);
+    },
+
+    /* 9 */ async () => {
+      setStep(10, 'Verify the fingerprint',
+        'Before running the new code, the Bootloader recomputes the CRC of what was written and compares it with the fingerprint the computer sent. If they match, the install is good.');
+      blLogLine('[INFO] Computing CRC of installed app…', 'info');
+      await delay(900);
+      blLogLine('[INFO] CRC matches: 0xA83CB6E8 ✓', 'ok');
+      showScreenLine('sl7');
+      setProgress(95);
+      await delay(600);
+    },
+
+    /* 10 */ async () => {
+      setStep(11, 'Jump to the new application',
+        'The Bootloader hands control over to the new firmware. The board is now running your application — the Bootloader sleeps until the next reset.');
+      blLogLine('[INFO] Loading application…', 'info');
+      setLED('led3', false);
+      await delay(500);
+      setChip('CPU: Application running');
+      setState('APP RUN', '#4eff9a');
+      blLogLine('[INFO] App v1.3.0 starting FreeRTOS…', 'ok');
+      setProgress(100);
+      await delay(600);
+    },
+
+    /* 11 */ async () => {
+      setStep(12, 'Application is alive',
+        'The app blinks LEDs at different speeds and refreshes the watchdog timer every 5 seconds. The watchdog is a safety net: if the app ever hangs, the chip restarts automatically.');
+      // blink LEDs
+      for (let i = 0; i < 5; i++) {
+        setLED('led1', i % 2 === 0, 'green');
+        setLED('led2', i % 2 === 1, 'orange');
+        await delay(350);
+      }
+      blLogLine('[APP]  Main task running…', 'info');
+      blLogLine('[APP]  Watchdog refreshed', 'ok');
+      await delay(500);
+      blLogLine('[APP]  Main task running…', 'info');
+      await delay(800);
+    },
+  ];
+
+  /* ───────── runtime ───────── */
+  async function runStep(i) {
+    if (i >= steps.length) {
+      isPlaying = false;
+      return;
+    }
+    await steps[i]();
+    stepIndex = i + 1;
+    if (isPlaying && stepIndex < steps.length) {
+      runStep(stepIndex);
+    } else if (stepIndex >= steps.length) {
+      setStep('✓', 'Done!',
+        'You just watched the entire firmware-flashing process. Click Restart to play it again, or Step to go through it manually.');
+      isPlaying = false;
+    }
+  }
+
+  function play() {
+    if (stepIndex >= steps.length) restart();
+    isPlaying = true;
+    runStep(stepIndex);
+  }
+  function pause() {
+    isPlaying = false;
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+  function restart() {
+    pause();
+    stepIndex = 0;
+    resetScene();
+    setStep(0, 'Press Play to begin',
+      'Watch how the computer talks to the chip and installs new software.');
+  }
+  async function step() {
+    pause();
+    if (stepIndex >= steps.length) {
+      restart();
+      await delay(100);
+    }
+    await steps[stepIndex]();
+    stepIndex++;
+    if (stepIndex >= steps.length) {
+      setStep('✓', 'Done!',
+        'You just watched the entire firmware-flashing process. Click Restart to play it again.');
+    }
+  }
+  function updateSpeed() {
+    speed = parseFloat(speedSlider.value);
+    speedLabel.textContent = speed.toFixed(1) + '×';
+  }
+
+  /* paint bootloader bank on load */
+  (function paintBank1() {
+    const s = document.getElementById('bank1').children;
+    s[0].className = 'sector bl';
+    s[1].className = 'sector bl';
+    s[3].className = 'sector config';
+  })();
+</script>
+
+</body>
+</html>

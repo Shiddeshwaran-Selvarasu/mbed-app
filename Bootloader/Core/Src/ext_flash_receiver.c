@@ -129,11 +129,13 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
             received_frame->payload[0] == ETX_DL_CMD_START) {
           LOG_INFO("Received DL start command. Transitioning to HEADER state...\r\n");
           dl_state = ETX_DL_STATE_HEADER;
+          /* Re-arm DMA before ACK to avoid overrun race on the next frame. */
+          restart_dma_receive();
           etx_send_response(ETX_DL_RSP_ACK);
         } else {
+          restart_dma_receive();
           etx_send_response(ETX_DL_RSP_NACK);
         }
-        restart_dma_receive();
         break;
 
       case ETX_DL_STATE_HEADER:
@@ -154,13 +156,17 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
                                + (total_data_size % ETX_FRAME_DATA_MAX_SIZE != 0);
           received_data_fragments = 0;
 
+          /* Re-arm DMA BEFORE sending ACK. The host starts streaming the 10KB
+           * data frame as soon as it sees ACK; if DMA isn't armed yet the USART
+           * overruns within microseconds and we lose the start of the frame. */
+          restart_dma_receive();
           etx_send_response(ETX_DL_RSP_ACK);
           LOG_INFO("Transitioning to DATA state...\r\n");
           dl_state = ETX_DL_STATE_DATA;
         } else {
+          restart_dma_receive();
           etx_send_response(ETX_DL_RSP_NACK);
         }
-        restart_dma_receive();
         break;
 
       case ETX_DL_STATE_DATA:
@@ -322,6 +328,17 @@ static HAL_StatusTypeDef flash_erase_application(uint32_t data_size)
 static void restart_dma_receive(void)
 {
   memset(rx_active, 0, ETX_FRAME_PACKET_MAX_SIZE);
-  HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_active, ETX_FRAME_PACKET_MAX_SIZE);
+  HAL_StatusTypeDef st = HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_active, ETX_FRAME_PACKET_MAX_SIZE);
+  if (st != HAL_OK) {
+    /* HAL refused the re-arm (RxState not READY). Force-reset and retry once. */
+    HAL_UART_AbortReceive(&huart2);
+    huart2.RxState = HAL_UART_STATE_READY;
+    huart2.ReceptionType = HAL_UART_RECEPTION_STANDARD;
+    st = HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_active, ETX_FRAME_PACKET_MAX_SIZE);
+    if (st != HAL_OK) {
+      LOG_ERROR("DMA receive re-arm failed (status=%d)\r\n", (int)st);
+    }
+  }
   __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
+  __HAL_UART_ENABLE_IT(&huart2, UART_IT_IDLE);
 }

@@ -6,6 +6,8 @@
   ******************************************************************************/
 
 #include "etx_flash_update.h"
+#include <errno.h>
+#include <string.h>
 
 /* Host Flash Version Info start */
 #define Major_VERSION  2
@@ -157,21 +159,45 @@ ETX_DL_FRAME_EX_ etx_tx_data(int comport_number, ETX_DL_FRAME_ *buffer)
     return ETX_DL_FRAME_EX_ERR;
   }
 
-  // calculate crc for (SOF + packet_type + payload_len + payload)
-  buffer->crc = CalcCRC( (uint8_t *)&buffer->sof, (buffer->payload_len + 4)); 
+  /* CRC covers SOF + packet_type + payload_len + payload */
+  uint16_t header_and_payload = buffer->payload_len + 4;
+  buffer->crc = CalcCRC((uint8_t *)&buffer->sof, header_and_payload);
 
-  printf("Sending packet type: %d, length: %d\r\n", buffer->packet_type, buffer->payload_len);
+  /* Assemble the entire frame contiguously so it goes out in ONE write().
+   * Splitting writes lets the MCU's UART IDLE-line detect fire mid-frame. */
+  static uint8_t tx_buf[ETX_FRAME_DATA_MAX_SIZE + ETX_FRAME_DATA_OVERHEAD];
+  uint16_t total = header_and_payload + 5;  /* + CRC(4) + EOF(1) */
 
-  // send (SOF + packet_type + payload_len + payload)
-  if( RS232_SendBuf(comport_number, (uint8_t *)&buffer->sof, buffer->payload_len + 4) ) {
-    printf("Send Err: %d\n", buffer->packet_type);
+  if (total > sizeof(tx_buf)) {
+    printf("[TX] Frame too large: %u\n", (unsigned)total);
     return ETX_DL_FRAME_EX_ERR;
   }
 
-  // send (CRC + EOF)
-  if( RS232_SendBuf(comport_number, (uint8_t *)&buffer->crc, 5) ) {
-    printf("Send Err: %d\n", buffer->packet_type);
-    return ETX_DL_FRAME_EX_ERR;
+  memcpy(tx_buf, &buffer->sof, header_and_payload);
+  memcpy(tx_buf + header_and_payload, &buffer->crc, 4);
+  tx_buf[header_and_payload + 4] = buffer->eof;
+
+  /* Loop on partial writes: the TTY TX buffer (~4KB) can't hold a full data
+   * frame (up to ~10KB). We re-call write() immediately so the kernel keeps
+   * streaming bytes to the UART without an on-wire IDLE gap. */
+  int total_sent = 0;
+  int spin_guard = 0;
+  while (total_sent < (int)total) {
+    int n = RS232_SendBuf(comport_number, tx_buf + total_sent, (int)total - total_sent);
+    if (n < 0) {
+      printf("[TX] write() failed: errno=%d (%s)\n", errno, strerror(errno));
+      return ETX_DL_FRAME_EX_ERR;
+    }
+    if (n == 0) {
+      /* EAGAIN — TX buffer full; spin briefly for it to drain. */
+      if (++spin_guard > 1000000) {
+        printf("[TX] stalled at %d/%u bytes\n", total_sent, (unsigned)total);
+        return ETX_DL_FRAME_EX_ERR;
+      }
+      continue;
+    }
+    spin_guard = 0;
+    total_sent += n;
   }
 
   return ETX_DL_FRAME_EX_OK;
@@ -183,14 +209,17 @@ ETX_DL_FRAME_EX_ etx_tx_response(int comport_number, ETX_DL_RSPF_ *response)
     return ETX_DL_FRAME_EX_ERR;
   }
 
-  // send (SOF + packet_type + payload + EOF)
-  for(uint32_t i = 0; i < sizeof(ETX_DL_RSPF_); i++) {
-    delay(INTER_BYTE_DELAY_US);
-    if( RS232_SendByte(comport_number, ((uint8_t *)response)[i]) ) {
-      //some data missed.
-      printf("Send Err: %d\n", response->packet_type);
-      return ETX_DL_FRAME_EX_ERR;
-    }
+  /* Send the whole 4-byte response in one write so MCU sees a single IDLE event. */
+  int total = (int)sizeof(ETX_DL_RSPF_);
+  int n = RS232_SendBuf(comport_number, (uint8_t *)response, total);
+
+  if (n < 0) {
+    printf("[TX-RSP] write() failed: errno=%d (%s)\n", errno, strerror(errno));
+    return ETX_DL_FRAME_EX_ERR;
+  }
+  if (n != total) {
+    printf("[TX-RSP] short write: sent %d of %d\n", n, total);
+    return ETX_DL_FRAME_EX_ERR;
   }
 
   return ETX_DL_FRAME_EX_OK;

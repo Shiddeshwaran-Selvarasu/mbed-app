@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DMA — How the Background Helper Works</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a2e;
+    --panel-2: #1b2440;
+    --ink: #e6ecff;
+    --ink-dim: #93a3c8;
+    --accent: #4ea1ff;
+    --accent-warm: #ffb84e;
+    --accent-good: #4eff9a;
+    --accent-bad: #ff5e7a;
+    --accent-purple: #b676ff;
+    --wire: #2d3a5e;
+    --shadow: 0 10px 30px rgba(0,0,0,0.4);
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: linear-gradient(180deg, #0b1020 0%, #0f1730 100%);
+    color: var(--ink);
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  header, .section-header {
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  header { margin-bottom: 24px; }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 6px;
+    letter-spacing: -0.3px;
+  }
+  h2 {
+    font-size: 22px;
+    margin: 40px 0 6px;
+    letter-spacing: -0.2px;
+  }
+  h2 .badge {
+    display: inline-block;
+    background: var(--accent-bad);
+    color: #fff;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    vertical-align: middle;
+    margin-left: 8px;
+    letter-spacing: 0.4px;
+  }
+  .subtitle {
+    color: var(--ink-dim);
+    font-size: 15px;
+    margin-bottom: 20px;
+  }
+  .section-subtitle {
+    color: var(--ink-dim);
+    font-size: 14px;
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+  .nav-link {
+    display: inline-block;
+    margin-top: 8px;
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .nav-link:hover { text-decoration: underline; }
+
+  .section-divider {
+    max-width: 1280px;
+    margin: 40px auto 0;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    padding-top: 8px;
+  }
+
+  .layout {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 20px;
+  }
+
+  .stage-wrap {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .stage-wrap.issue {
+    border-left: 4px solid var(--accent-bad);
+  }
+
+  .step-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--panel-2);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+  }
+  .step-num {
+    background: var(--accent-purple);
+    color: #001;
+    font-weight: 700;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .stage-wrap.issue .step-num { background: var(--accent-bad); color: #fff; }
+  .step-text { flex: 1; font-size: 15px; line-height: 1.4; }
+  .step-title { font-weight: 600; margin-bottom: 2px; }
+  .step-desc { color: var(--ink-dim); font-size: 13px; }
+
+  .stage {
+    position: relative;
+    height: 460px;
+    background: linear-gradient(180deg, #0a0f24 0%, #0d1430 100%);
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.04);
+    overflow: hidden;
+    padding: 20px;
+  }
+
+  /* Generic block */
+  .block {
+    position: absolute;
+    background: #1a2444;
+    border: 1px solid #2a3554;
+    border-radius: 8px;
+    padding: 10px;
+    transition: all 0.3s;
+  }
+  .block-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 6px;
+    text-align: center;
+  }
+
+  /* UART pin */
+  .uart-pin {
+    left: 20px;
+    top: 100px;
+    width: 90px;
+    height: 110px;
+  }
+  .pin-label {
+    font-size: 11px;
+    color: var(--accent-warm);
+    text-align: center;
+    font-weight: 600;
+  }
+  .wire-line {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: -10px;
+    height: 3px;
+    background: var(--wire);
+    border-radius: 2px;
+  }
+  .bit-stream {
+    position: absolute;
+    top: calc(50% - 12px);
+    left: 6px;
+    right: 6px;
+    height: 24px;
+    display: flex;
+    gap: 1px;
+    align-items: center;
+  }
+  .bit {
+    flex: 1;
+    height: 18px;
+    background: #0a1428;
+    border-radius: 1px;
+    transition: background 0.15s;
+  }
+  .bit.high { background: var(--accent-warm); }
+  .bit.low { background: #1a2845; }
+
+  /* USART chip */
+  .usart {
+    left: 150px;
+    top: 80px;
+    width: 180px;
+    height: 160px;
+  }
+  .reg {
+    background: #0a1428;
+    border: 1px solid #2a3554;
+    border-radius: 4px;
+    padding: 6px;
+    margin-bottom: 6px;
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 10px;
+    text-align: center;
+    transition: all 0.2s;
+  }
+  .reg-name { color: var(--ink-dim); font-size: 9px; }
+  .reg-val { font-weight: 700; color: var(--ink); margin-top: 2px; height: 14px; }
+  .reg.flash { background: var(--accent-good); color: #001; animation: regFlash 0.4s; }
+  .reg.flag-on .reg-val { color: var(--accent-bad); }
+  .reg.locked {
+    background: #5a1a28;
+    border-color: var(--accent-bad);
+    box-shadow: 0 0 12px rgba(255,94,122,0.4);
+  }
+  .reg.locked .reg-val { color: var(--accent-bad); }
+  @keyframes regFlash {
+    0% { background: var(--accent-good); transform: scale(1.05); }
+    100% { background: #0a1428; transform: scale(1); }
+  }
+
+  /* DMA controller */
+  .dma {
+    left: 380px;
+    top: 60px;
+    width: 200px;
+    height: 200px;
+  }
+  .dma-icon {
+    width: 38px;
+    height: 38px;
+    background: var(--accent-purple);
+    border-radius: 50%;
+    margin: 0 auto 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #001;
+    font-weight: 800;
+    font-size: 14px;
+    transition: all 0.2s;
+  }
+  .dma-icon.busy { animation: busy 0.3s infinite; box-shadow: 0 0 16px var(--accent-purple); }
+  .dma-icon.stopped {
+    background: #4a4a4a;
+    color: #999;
+    box-shadow: none;
+  }
+  @keyframes busy {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+  }
+  .ndtr {
+    background: #0a1428;
+    border: 1px solid #2a3554;
+    border-radius: 4px;
+    padding: 6px;
+    margin-bottom: 4px;
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 10px;
+    text-align: center;
+  }
+  .ndtr-label { color: var(--ink-dim); font-size: 9px; }
+  .ndtr-val { font-weight: 700; color: var(--accent-purple); font-size: 13px; }
+
+  /* Buffer */
+  .buffer-wrap {
+    right: 20px;
+    top: 50px;
+    width: 240px;
+    height: 360px;
+  }
+  .buffer {
+    background: #1a2444;
+    border: 1px solid #2a3554;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+    transition: all 0.3s;
+  }
+  .buffer.active {
+    border-color: var(--accent-purple);
+    box-shadow: 0 0 12px rgba(182,118,255,0.3);
+  }
+  .buffer.processing {
+    border-color: var(--accent-warm);
+    box-shadow: 0 0 12px rgba(255,184,78,0.3);
+  }
+  .buffer-name {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: center;
+    margin-bottom: 6px;
+  }
+  .buffer.active .buffer-name { color: var(--accent-purple); }
+  .buffer.processing .buffer-name { color: var(--accent-warm); }
+  .cells {
+    display: grid;
+    grid-template-columns: repeat(20, 1fr);
+    gap: 1px;
+    height: 50px;
+  }
+  .cell {
+    background: #0a1428;
+    border-radius: 1px;
+    transition: background 0.1s;
+  }
+  .cell.filled { background: var(--accent-purple); }
+  .cell.processed { background: var(--accent-warm); }
+  .cell.lost {
+    background: var(--accent-bad);
+    animation: lostFlash 0.6s;
+  }
+  @keyframes lostFlash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* CPU */
+  .cpu {
+    left: 150px;
+    top: 270px;
+    width: 230px;
+    height: 130px;
+    background: #2a1a44;
+    border-color: #4a3554;
+  }
+  .cpu-task {
+    background: #0a0a28;
+    border-radius: 4px;
+    padding: 8px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--accent-good);
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+  .cpu-task.handling-irq {
+    background: var(--accent-bad);
+    color: #fff;
+    animation: pulse 0.4s;
+  }
+  .cpu-task.busy {
+    background: var(--accent-warm);
+    color: #001;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+  }
+
+  /* IRQ alert */
+  .irq-arrow {
+    position: absolute;
+    left: 220px;
+    top: 245px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--accent-bad);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    opacity: 0;
+    transform: scale(0);
+    transition: all 0.3s;
+    z-index: 10;
+    box-shadow: 0 0 16px var(--accent-bad);
+  }
+  .irq-arrow.show { opacity: 1; transform: scale(1); }
+
+  /* "Lost byte" floating away */
+  .lost-byte {
+    position: absolute;
+    background: var(--accent-bad);
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: 'Monaco', monospace;
+    font-weight: 700;
+    z-index: 12;
+    transition: all 1.2s ease-out;
+    pointer-events: none;
+  }
+
+  /* Animated arrows between blocks */
+  .arrow {
+    position: absolute;
+    height: 8px;
+    width: 8px;
+    background: var(--accent-good);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--accent-good);
+    opacity: 0;
+    z-index: 8;
+    transition: all 0.5s ease-in-out;
+  }
+  .arrow.show { opacity: 1; }
+
+  /* "Take-away" callout box */
+  .callout {
+    margin-top: 16px;
+    background: linear-gradient(135deg, rgba(78,255,154,0.08), rgba(78,161,255,0.08));
+    border: 1px solid rgba(78,255,154,0.3);
+    border-radius: 10px;
+    padding: 14px 18px;
+  }
+  .callout.warn {
+    background: linear-gradient(135deg, rgba(255,94,122,0.08), rgba(255,184,78,0.08));
+    border-color: rgba(255,94,122,0.3);
+  }
+  .callout-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-good);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 6px;
+  }
+  .callout.warn .callout-title { color: var(--accent-bad); }
+  .callout-body {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .callout-body code {
+    background: rgba(255,255,255,0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+
+  /* Side panel */
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .controls {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+  }
+  .control-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 10px;
+  }
+  .button-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  button {
+    flex: 1;
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid rgba(255,255,255,0.06);
+    padding: 9px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  button:hover { background: var(--accent-purple); color: #001; }
+  .stage-wrap.issue button:hover { background: var(--accent-bad); color: #fff; }
+  button:active { transform: scale(0.97); }
+
+  .speed-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .speed-row label { font-size: 12px; color: var(--ink-dim); flex-shrink: 0; }
+  input[type="range"] { flex: 1; accent-color: var(--accent-purple); }
+
+  .logs {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .log-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .log-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-purple);
+  }
+  .stage-wrap.issue + .side .log-dot,
+  .issue-side .log-dot { background: var(--accent-bad); }
+  .log-content {
+    background: #060b1a;
+    border-radius: 8px;
+    padding: 10px;
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--ink);
+    flex: 1;
+    overflow-y: auto;
+    max-height: 380px;
+    min-height: 340px;
+  }
+  .log-line { margin-bottom: 2px; }
+  .log-line.info { color: var(--accent); }
+  .log-line.dma  { color: var(--accent-purple); }
+  .log-line.cpu  { color: var(--accent-good); }
+  .log-line.irq  { color: var(--accent-bad); font-weight: 700; }
+  .log-line.warn { color: var(--accent-warm); }
+  .log-line.err  { color: var(--accent-bad); }
+
+  .legend {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    box-shadow: var(--shadow);
+    margin-top: 16px;
+    max-width: 1280px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .legend-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 10px;
+  }
+  .legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--ink-dim);
+  }
+  .swatch {
+    width: 20px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 980px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>DMA — How the Background Helper Works</h1>
+  <p class="subtitle">A deep-dive into the Direct Memory Access mechanism that lets the chip receive 10 KB of firmware while the CPU is busy doing other things.</p>
+  <a href="FLOW.html" class="nav-link">← Back to main flow walkthrough</a>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTION 1 — Normal Operation
+     ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="layout">
+  <div class="stage-wrap" id="mainSection">
+    <div class="step-banner">
+      <div class="step-num" id="m_stepNum">0</div>
+      <div class="step-text">
+        <div class="step-title" id="m_stepTitle">Press Play to begin</div>
+        <div class="step-desc" id="m_stepDesc">See how data flows from the wire all the way into memory — without the CPU lifting a finger.</div>
+      </div>
+    </div>
+
+    <div class="stage" id="m_stage">
+      <div class="block uart-pin">
+        <div class="block-title">RX Pin</div>
+        <div class="pin-label">PA3</div>
+        <div class="wire-line">
+          <div class="bit-stream" id="m_bitStream">
+            <div class="bit"></div><div class="bit"></div><div class="bit"></div>
+            <div class="bit"></div><div class="bit"></div><div class="bit"></div>
+            <div class="bit"></div><div class="bit"></div><div class="bit"></div>
+            <div class="bit"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="block usart">
+        <div class="block-title">USART2</div>
+        <div class="reg" id="m_rdr">
+          <div class="reg-name">RDR (Receive Data)</div>
+          <div class="reg-val" id="m_rdrVal">—</div>
+        </div>
+        <div class="reg" id="m_rxneFlag">
+          <div class="reg-name">RXNE (byte ready)</div>
+          <div class="reg-val" id="m_rxneVal">0</div>
+        </div>
+        <div class="reg" id="m_idleFlag">
+          <div class="reg-name">IDLE (line quiet)</div>
+          <div class="reg-val" id="m_idleVal">0</div>
+        </div>
+      </div>
+
+      <div class="block dma">
+        <div class="block-title">DMA1 / Stream 0</div>
+        <div class="dma-icon" id="m_dmaIcon">⚡</div>
+        <div class="ndtr">
+          <div class="ndtr-label">Source addr</div>
+          <div class="ndtr-val" style="font-size:11px">USART2→RDR</div>
+        </div>
+        <div class="ndtr">
+          <div class="ndtr-label">Dest addr (next)</div>
+          <div class="ndtr-val" id="m_destAddr" style="font-size:11px">buffer[0]</div>
+        </div>
+        <div class="ndtr">
+          <div class="ndtr-label">NDTR (bytes left)</div>
+          <div class="ndtr-val" id="m_ndtrVal">10249</div>
+        </div>
+      </div>
+
+      <div class="buffer-wrap" style="position:absolute">
+        <div class="buffer active" id="m_bufA">
+          <div class="buffer-name">Buffer A (rx_active)</div>
+          <div class="cells" id="m_cellsA"></div>
+        </div>
+        <div class="buffer" id="m_bufB">
+          <div class="buffer-name">Buffer B (rx_ready)</div>
+          <div class="cells" id="m_cellsB"></div>
+        </div>
+        <div style="background:#1a2444;border:1px solid #2a3554;border-radius:8px;padding:10px;margin-top:8px">
+          <div class="buffer-name">Why ping-pong?</div>
+          <div style="font-size:11px;color:var(--ink-dim);line-height:1.45">
+            While the CPU processes one full buffer, DMA can already be filling the other with the next frame. No data is missed.
+          </div>
+        </div>
+      </div>
+
+      <div class="block cpu">
+        <div class="block-title">CPU (Cortex-M7)</div>
+        <div class="cpu-task" id="m_cpuTask">Doing other work…</div>
+        <div style="font-size:10px;color:var(--ink-dim);margin-top:6px;text-align:center;line-height:1.4">
+          The CPU is free.<br>It does not see each byte arrive.
+        </div>
+      </div>
+
+      <div class="irq-arrow" id="m_irqArrow">!</div>
+      <div class="arrow" id="m_arrow1"></div>
+      <div class="arrow" id="m_arrow2"></div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">★ The whole secret in one line</div>
+      <div class="callout-body">
+        DMA copies bytes from USART to memory <em>without</em> the CPU. The CPU only wakes up when a complete frame is ready — once per ~890 ms instead of once per ~87 µs (10 000× fewer wake-ups).
+      </div>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="controls">
+      <div class="control-title">Controls</div>
+      <div class="button-row">
+        <button onclick="mainCtl.play()">▶ Play</button>
+        <button onclick="mainCtl.pause()">⏸ Pause</button>
+        <button onclick="mainCtl.restart()">↻ Restart</button>
+      </div>
+      <div class="button-row">
+        <button onclick="mainCtl.step()">Step ▸</button>
+      </div>
+      <div class="speed-row">
+        <label>Speed</label>
+        <input type="range" id="m_speed" min="0.3" max="3" step="0.1" value="1" oninput="mainCtl.updateSpeed()">
+        <span id="m_speedLabel">1.0×</span>
+      </div>
+    </div>
+
+    <div class="logs">
+      <div class="log-title"><span class="log-dot"></span>Activity log</div>
+      <div class="log-content" id="m_log"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTION 2 — Issues Observed
+     ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section-header">
+  <h2>Issues Observed <span class="badge">debugging session</span></h2>
+  <p class="section-subtitle">
+    During development we hit a real bug: the bootloader was losing the first data frame and the host had to NACK-retry.
+    The diagnostic logs traced it to a timing race in the DMA re-arm sequence. Here is exactly what was happening — and why moving one line of code fixed it.
+  </p>
+</div>
+
+<div class="layout">
+  <div class="stage-wrap issue" id="issueSection">
+    <div class="step-banner">
+      <div class="step-num" id="i_stepNum">0</div>
+      <div class="step-text">
+        <div class="step-title" id="i_stepTitle">Press Play to see the bug</div>
+        <div class="step-desc" id="i_stepDesc">Watch what happens when the CPU sends the ACK before re-arming DMA. Bytes get lost on the floor.</div>
+      </div>
+    </div>
+
+    <div class="stage" id="i_stage">
+      <div class="block uart-pin">
+        <div class="block-title">RX Pin</div>
+        <div class="pin-label">PA3</div>
+        <div class="wire-line">
+          <div class="bit-stream" id="i_bitStream">
+            <div class="bit"></div><div class="bit"></div><div class="bit"></div>
+            <div class="bit"></div><div class="bit"></div><div class="bit"></div>
+            <div class="bit"></div><div class="bit"></div><div class="bit"></div>
+            <div class="bit"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="block usart">
+        <div class="block-title">USART2</div>
+        <div class="reg" id="i_rdr">
+          <div class="reg-name">RDR (Receive Data)</div>
+          <div class="reg-val" id="i_rdrVal">—</div>
+        </div>
+        <div class="reg" id="i_rxneFlag">
+          <div class="reg-name">RXNE (byte ready)</div>
+          <div class="reg-val" id="i_rxneVal">0</div>
+        </div>
+        <div class="reg" id="i_oreFlag">
+          <div class="reg-name">ORE (overrun!)</div>
+          <div class="reg-val" id="i_oreVal">0</div>
+        </div>
+      </div>
+
+      <div class="block dma">
+        <div class="block-title">DMA1 / Stream 0</div>
+        <div class="dma-icon stopped" id="i_dmaIcon">⏸</div>
+        <div class="ndtr">
+          <div class="ndtr-label">Source addr</div>
+          <div class="ndtr-val" style="font-size:11px">USART2→RDR</div>
+        </div>
+        <div class="ndtr">
+          <div class="ndtr-label">Status</div>
+          <div class="ndtr-val" id="i_dmaStatus" style="font-size:11px;color:var(--ink-dim)">NOT ARMED</div>
+        </div>
+        <div class="ndtr">
+          <div class="ndtr-label">NDTR</div>
+          <div class="ndtr-val" id="i_ndtrVal">—</div>
+        </div>
+      </div>
+
+      <div class="buffer-wrap" style="position:absolute">
+        <div class="buffer" id="i_bufA">
+          <div class="buffer-name">Buffer A — being processed</div>
+          <div class="cells" id="i_cellsA"></div>
+        </div>
+        <div class="buffer" id="i_bufB">
+          <div class="buffer-name">Buffer B — should be the next target</div>
+          <div class="cells" id="i_cellsB"></div>
+        </div>
+        <div style="background:#5a1a28;border:1px solid var(--accent-bad);border-radius:8px;padding:10px;margin-top:8px">
+          <div class="buffer-name" style="color:var(--accent-bad)">⚠ Bytes lost</div>
+          <div style="font-size:11px;color:var(--ink-dim);line-height:1.45" id="i_lossNote">
+            Counter of bytes that arrived at the pin but never made it to memory.
+          </div>
+          <div style="text-align:center;font-size:18px;color:var(--accent-bad);font-weight:700;margin-top:6px" id="i_lossCount">0 lost</div>
+        </div>
+      </div>
+
+      <div class="block cpu">
+        <div class="block-title">CPU (Cortex-M7)</div>
+        <div class="cpu-task" id="i_cpuTask">Sending ACK to host…</div>
+        <div style="font-size:10px;color:var(--ink-dim);margin-top:6px;text-align:center;line-height:1.4">
+          The CPU is busy talking — DMA is offline.
+        </div>
+      </div>
+
+      <div class="irq-arrow" id="i_irqArrow">!</div>
+    </div>
+
+    <div class="callout warn">
+      <div class="callout-title">⚠ Root cause &amp; fix</div>
+      <div class="callout-body">
+        The original code sent ACK first, then re-armed DMA. The host received ACK in ~1–5 ms and started streaming the next 10 KB frame immediately — but DMA was still offline, so the USART overran within microseconds.
+        <br><br>
+        <strong>Fix:</strong> swap the order — call <code>restart_dma_receive()</code> <em>before</em> <code>etx_send_response(ACK)</code>. DMA must always be ready before you authorize the peer to send.
+      </div>
+    </div>
+  </div>
+
+  <div class="side issue-side">
+    <div class="controls">
+      <div class="control-title">Controls</div>
+      <div class="button-row">
+        <button onclick="issueCtl.play()">▶ Play</button>
+        <button onclick="issueCtl.pause()">⏸ Pause</button>
+        <button onclick="issueCtl.restart()">↻ Restart</button>
+      </div>
+      <div class="button-row">
+        <button onclick="issueCtl.step()">Step ▸</button>
+      </div>
+      <div class="speed-row">
+        <label>Speed</label>
+        <input type="range" id="i_speed" min="0.3" max="3" step="0.1" value="1" oninput="issueCtl.updateSpeed()">
+        <span id="i_speedLabel">1.0×</span>
+      </div>
+    </div>
+
+    <div class="logs">
+      <div class="log-title"><span class="log-dot"></span>Activity log</div>
+      <div class="log-content" id="i_log"></div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-title">Legend</div>
+  <div class="legend-grid">
+    <div class="legend-item"><div class="swatch" style="background:#ffb84e"></div>Wire bits / line activity</div>
+    <div class="legend-item"><div class="swatch" style="background:#b676ff"></div>DMA — the background mover</div>
+    <div class="legend-item"><div class="swatch" style="background:#4eff9a"></div>CPU activity</div>
+    <div class="legend-item"><div class="swatch" style="background:#ff5e7a"></div>Interrupt / error / lost bytes</div>
+    <div class="legend-item"><div class="swatch" style="background:#4ea1ff"></div>USART hardware</div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   Generic playback engine — works on any prefixed DOM (m_ or i_)
+   ═══════════════════════════════════════════════════════════════════ */
+
+function makeController(prefix, steps, finalMessage) {
+  const ctl = {
+    speed: 1.0,
+    stepIndex: 0,
+    timeoutHandle: null,
+    isPlaying: false,
+    prefix,
+    steps,
+    finalMessage,
+  };
+
+  ctl.delay = function(ms) {
+    return new Promise(resolve => {
+      ctl.timeoutHandle = setTimeout(resolve, ms / ctl.speed);
+    });
+  };
+
+  ctl.setStep = function(n, title, desc) {
+    document.getElementById(prefix + 'stepNum').textContent = n;
+    document.getElementById(prefix + 'stepTitle').textContent = title;
+    document.getElementById(prefix + 'stepDesc').textContent = desc;
+  };
+
+  ctl.log = function(text, cls) {
+    const div = document.createElement('div');
+    div.className = 'log-line ' + (cls || 'info');
+    div.textContent = text;
+    const logEl = document.getElementById(prefix + 'log');
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  };
+  ctl.clearLog = function() { document.getElementById(prefix + 'log').innerHTML = ''; };
+
+  ctl.runStep = async function(i) {
+    if (i >= ctl.steps.length) { ctl.isPlaying = false; return; }
+    await ctl.steps[i](ctl);
+    ctl.stepIndex = i + 1;
+    if (ctl.isPlaying && ctl.stepIndex < ctl.steps.length) {
+      ctl.runStep(ctl.stepIndex);
+    } else if (ctl.stepIndex >= ctl.steps.length) {
+      ctl.setStep('✓', ctl.finalMessage.title, ctl.finalMessage.desc);
+      ctl.isPlaying = false;
+    }
+  };
+
+  ctl.play = function() {
+    if (ctl.stepIndex >= ctl.steps.length) ctl.restart();
+    ctl.isPlaying = true;
+    ctl.runStep(ctl.stepIndex);
+  };
+  ctl.pause = function() {
+    ctl.isPlaying = false;
+    if (ctl.timeoutHandle) clearTimeout(ctl.timeoutHandle);
+  };
+  ctl.restart = function() {
+    ctl.pause();
+    ctl.stepIndex = 0;
+    if (ctl.resetScene) ctl.resetScene();
+  };
+  ctl.step = async function() {
+    ctl.pause();
+    if (ctl.stepIndex >= ctl.steps.length) {
+      ctl.restart();
+      await ctl.delay(50);
+    }
+    await ctl.steps[ctl.stepIndex](ctl);
+    ctl.stepIndex++;
+    if (ctl.stepIndex >= ctl.steps.length) {
+      ctl.setStep('✓', ctl.finalMessage.title, ctl.finalMessage.desc);
+    }
+  };
+  ctl.updateSpeed = function() {
+    const s = document.getElementById(prefix + 'speed');
+    ctl.speed = parseFloat(s.value);
+    document.getElementById(prefix + 'speedLabel').textContent = ctl.speed.toFixed(1) + '×';
+  };
+
+  return ctl;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Build buffer cells
+   ═══════════════════════════════════════════════════════════════════ */
+function makeCells(id, n) {
+  const wrap = document.getElementById(id);
+  for (let i = 0; i < n; i++) {
+    const c = document.createElement('div');
+    c.className = 'cell';
+    wrap.appendChild(c);
+  }
+}
+makeCells('m_cellsA', 80);
+makeCells('m_cellsB', 80);
+makeCells('i_cellsA', 80);
+makeCells('i_cellsB', 80);
+
+/* ═══════════════════════════════════════════════════════════════════
+   Scene 1 — Normal Operation
+   ═══════════════════════════════════════════════════════════════════ */
+
+const m_cellsA = document.getElementById('m_cellsA').children;
+const m_cellsB = document.getElementById('m_cellsB').children;
+
+function m_clearBits() {
+  const bs = document.getElementById('m_bitStream').children;
+  for (let b of bs) b.className = 'bit';
+}
+function m_setBits(pattern) {
+  const bs = document.getElementById('m_bitStream').children;
+  for (let i = 0; i < pattern.length; i++)
+    bs[i].className = 'bit ' + (pattern[i] ? 'high' : 'low');
+}
+async function m_flashReg(elId, valEl, value, ctl) {
+  const el = document.getElementById(elId);
+  if (valEl !== null && value !== undefined) document.getElementById(valEl).textContent = value;
+  el.classList.add('flash');
+  await ctl.delay(200);
+  el.classList.remove('flash');
+}
+async function m_flyArrow(arrowId, fromX, fromY, toX, toY, dur, ctl) {
+  const a = document.getElementById(arrowId);
+  a.style.left = fromX + 'px'; a.style.top = fromY + 'px';
+  a.style.transition = 'none';
+  a.classList.add('show');
+  await ctl.delay(20);
+  a.style.transition = `left ${dur/ctl.speed}ms ease-in-out, top ${dur/ctl.speed}ms ease-in-out`;
+  a.style.left = toX + 'px'; a.style.top = toY + 'px';
+  await ctl.delay(dur);
+  a.classList.remove('show');
+}
+function m_fillCell(buf, idx, color) {
+  const cells = buf === 'A' ? m_cellsA : m_cellsB;
+  if (idx < cells.length) cells[idx].className = 'cell ' + (color || 'filled');
+}
+function m_clearBuffer(buf) {
+  const cells = buf === 'A' ? m_cellsA : m_cellsB;
+  for (let c of cells) c.className = 'cell';
+}
+
+const mainSteps = [
+  /* 0 */ async (ctl) => {
+    ctl.setStep(1, 'The setup',
+      'A byte travels: cable → USART chip → DMA copies to memory → CPU stays free. We start with an empty buffer ready to receive 10249 bytes.');
+    ctl.log('System ready. DMA armed for 10249 bytes into Buffer A.', 'dma');
+    document.getElementById('m_cpuTask').textContent = 'Waiting (idle)';
+    document.getElementById('m_cpuTask').className = 'cpu-task';
+    await ctl.delay(1000);
+  },
+  /* 1 */ async (ctl) => {
+    ctl.setStep(2, 'A byte appears on the wire',
+      'Each UART byte = 10 bits: 1 start bit + 8 data bits + 1 stop bit. Here is byte 0xAA being clocked in (the start-of-frame marker).');
+    const pattern = [0,0,1,0,1,0,1,0,1,1];
+    for (let i = 0; i < pattern.length; i++) {
+      document.getElementById('m_bitStream').children[i].className = 'bit ' + (pattern[i] ? 'high' : 'low');
+      await ctl.delay(150);
+    }
+    ctl.log('Wire delivered byte: 0xAA', 'info');
+    await ctl.delay(400);
+  },
+  /* 2 */ async (ctl) => {
+    ctl.setStep(3, 'USART captures the byte',
+      'The USART hardware shifts the bits into its receive register (RDR) and raises a flag (RXNE = "byte available").');
+    await m_flashReg('m_rdr', 'm_rdrVal', '0xAA', ctl);
+    document.getElementById('m_rxneVal').textContent = '1';
+    document.getElementById('m_rxneFlag').classList.add('flag-on');
+    ctl.log('USART2 RDR = 0xAA, RXNE flag set', 'info');
+    await ctl.delay(700);
+  },
+  /* 3 */ async (ctl) => {
+    ctl.setStep(4, 'DMA grabs the byte automatically',
+      'Because DMA was pre-configured to listen to USART2, the moment RXNE fires, DMA copies the byte from RDR straight to memory — no CPU involvement.');
+    document.getElementById('m_dmaIcon').classList.add('busy');
+    await m_flyArrow('m_arrow1', 320, 175, 520, 175, 400, ctl);
+    document.getElementById('m_rxneVal').textContent = '0';
+    document.getElementById('m_rxneFlag').classList.remove('flag-on');
+    document.getElementById('m_rdrVal').textContent = '—';
+    m_fillCell('A', 0);
+    document.getElementById('m_ndtrVal').textContent = '10248';
+    document.getElementById('m_destAddr').textContent = 'buffer[1]';
+    ctl.log('DMA: RDR → Buffer A[0], NDTR=10248', 'dma');
+    await m_flyArrow('m_arrow2', 520, 175, 720, 105, 400, ctl);
+    document.getElementById('m_dmaIcon').classList.remove('busy');
+    m_clearBits();
+    await ctl.delay(400);
+  },
+  /* 4 */ async (ctl) => {
+    ctl.setStep(5, 'The CPU never noticed',
+      'While that byte was moving, the CPU was free to do other work — write flash, run logic, anything. DMA is silent. This is what makes high-speed receive possible.');
+    document.getElementById('m_cpuTask').textContent = 'Writing flash sector…';
+    document.getElementById('m_cpuTask').className = 'cpu-task busy';
+    await ctl.delay(1100);
+    document.getElementById('m_cpuTask').textContent = 'Idle, waiting for frame';
+    document.getElementById('m_cpuTask').className = 'cpu-task';
+    await ctl.delay(500);
+  },
+  /* 5 */ async (ctl) => {
+    ctl.setStep(6, 'Bytes keep streaming in',
+      'At 115 200 baud, a new byte arrives every ~87 µs. DMA quietly absorbs each one, decrementing its NDTR counter. Watch the buffer fill up.');
+    let ndtr = 10248;
+    for (let i = 1; i <= 16; i++) {
+      document.getElementById('m_dmaIcon').classList.add('busy');
+      m_fillCell('A', i);
+      ndtr--;
+      document.getElementById('m_ndtrVal').textContent = ndtr;
+      document.getElementById('m_destAddr').textContent = `buffer[${i+1}]`;
+      await ctl.delay(80);
+    }
+    document.getElementById('m_dmaIcon').classList.remove('busy');
+    ctl.log('17 bytes received so far. DMA still has 10232 slots free.', 'dma');
+    await ctl.delay(700);
+  },
+  /* 6 */ async (ctl) => {
+    ctl.setStep(7, 'Wire goes silent — frame is over',
+      'The host has sent the entire frame. The wire stops carrying bits. After ~1 byte-time of silence, the USART notices and sets the IDLE flag.');
+    m_clearBits();
+    await ctl.delay(800);
+    document.getElementById('m_idleVal').textContent = '1';
+    document.getElementById('m_idleFlag').classList.add('flag-on');
+    await m_flashReg('m_idleFlag', null, undefined, ctl);
+    ctl.log('USART2: line idle for >1 byte-time → IDLE flag set', 'warn');
+    await ctl.delay(500);
+  },
+  /* 7 */ async (ctl) => {
+    ctl.setStep(8, 'IDLE fires the interrupt',
+      'The IDLE flag triggers a high-priority interrupt. The CPU drops whatever it is doing and jumps into the interrupt handler — this happens in microseconds.');
+    document.getElementById('m_irqArrow').classList.add('show');
+    document.getElementById('m_cpuTask').textContent = '⚠ IRQ! Handling USART2';
+    document.getElementById('m_cpuTask').className = 'cpu-task handling-irq';
+    ctl.log('USART2_IRQHandler triggered — CPU preempted', 'irq');
+    await ctl.delay(900);
+    document.getElementById('m_irqArrow').classList.remove('show');
+  },
+  /* 8 */ async (ctl) => {
+    ctl.setStep(9, 'Handler reads the DMA counter',
+      'Inside the handler, the HAL library reads the NDTR counter. NDTR went from 10249 → 10232, so 17 bytes were received. It calls our callback with that count.');
+    ctl.log('HAL: NDTR=10232 → received = 10249-10232 = 17 bytes', 'cpu');
+    await ctl.delay(700);
+    ctl.log('Calling HAL_UARTEx_RxEventCallback(huart2, 17)', 'cpu');
+    await ctl.delay(500);
+  },
+  /* 9 */ async (ctl) => {
+    ctl.setStep(10, 'Ping-pong! Buffers swap',
+      'The callback marks Buffer A as "ready to process" and points DMA at the empty Buffer B. Now while the CPU works on A, DMA can already start filling B.');
+    document.getElementById('m_bufA').className = 'buffer';
+    document.getElementById('m_bufB').className = 'buffer active';
+    document.getElementById('m_ndtrVal').textContent = '10249';
+    document.getElementById('m_destAddr').textContent = 'buffer[0]';
+    document.getElementById('m_bufA').classList.add('processing');
+    ctl.log('Buffer A → "ready"; DMA re-armed on Buffer B', 'dma');
+    await ctl.delay(800);
+  },
+  /* 10 */ async (ctl) => {
+    ctl.setStep(11, 'CPU processes Buffer A',
+      'The main loop wakes up, validates the frame in Buffer A (checks SOF, CRC, EOF), then ACKs the host. The CPU is busy here — but DMA is still listening on Buffer B.');
+    document.getElementById('m_cpuTask').textContent = 'Validating frame in Buffer A';
+    document.getElementById('m_cpuTask').className = 'cpu-task busy';
+    for (let i = 0; i < 17; i++) {
+      m_cellsA[i].className = 'cell processed';
+      await ctl.delay(40);
+    }
+    ctl.log('Frame valid → sending ACK to host', 'cpu');
+    await ctl.delay(700);
+  },
+  /* 11 */ async (ctl) => {
+    ctl.setStep(12, 'Meanwhile, DMA is filling Buffer B',
+      'In parallel, the host has already started sending the next frame. DMA is putting those bytes into Buffer B. No data is missed because the swap happened before the host sent more.');
+    let ndtr = 10249;
+    for (let i = 0; i < 12; i++) {
+      document.getElementById('m_dmaIcon').classList.add('busy');
+      m_fillCell('B', i);
+      ndtr--;
+      document.getElementById('m_ndtrVal').textContent = ndtr;
+      await ctl.delay(70);
+    }
+    document.getElementById('m_dmaIcon').classList.remove('busy');
+    ctl.log('Buffer B: 12 bytes received and growing…', 'dma');
+    await ctl.delay(800);
+  },
+  /* 12 */ async (ctl) => {
+    ctl.setStep(13, 'The cycle repeats — that is the whole secret',
+      'Receive into A → process A while filling B → receive into B → process B while filling A. The CPU never has to babysit individual bytes, so it can do flash writes (which take milliseconds) without losing any incoming data.');
+    document.getElementById('m_cpuTask').textContent = 'Idle — waiting for next frame';
+    document.getElementById('m_cpuTask').className = 'cpu-task';
+    document.getElementById('m_idleVal').textContent = '0';
+    document.getElementById('m_idleFlag').classList.remove('flag-on');
+    ctl.log('System steady-state: CPU and DMA fully overlapped.', 'info');
+    await ctl.delay(1500);
+  },
+];
+
+const mainCtl = makeController('m_', mainSteps, {
+  title: 'You now understand DMA',
+  desc: 'You have walked through the full lifecycle: byte arrival → DMA copy → IDLE detection → IRQ handling → ping-pong swap. Restart any time, or scroll down to see what went wrong before we fixed it.'
+});
+mainCtl.resetScene = function() {
+  mainCtl.clearLog();
+  m_clearBits();
+  document.getElementById('m_rdrVal').textContent = '—';
+  document.getElementById('m_rxneVal').textContent = '0';
+  document.getElementById('m_rxneFlag').classList.remove('flag-on');
+  document.getElementById('m_idleVal').textContent = '0';
+  document.getElementById('m_idleFlag').classList.remove('flag-on');
+  document.getElementById('m_ndtrVal').textContent = '10249';
+  document.getElementById('m_destAddr').textContent = 'buffer[0]';
+  document.getElementById('m_dmaIcon').classList.remove('busy');
+  document.getElementById('m_irqArrow').classList.remove('show');
+  document.getElementById('m_cpuTask').textContent = 'Doing other work…';
+  document.getElementById('m_cpuTask').className = 'cpu-task';
+  m_clearBuffer('A'); m_clearBuffer('B');
+  document.getElementById('m_bufA').className = 'buffer active';
+  document.getElementById('m_bufB').className = 'buffer';
+  mainCtl.setStep(0, 'Press Play to begin',
+    'See how data flows from the wire all the way into memory — without the CPU lifting a finger.');
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   Scene 2 — Issues Observed (the failure case)
+   ═══════════════════════════════════════════════════════════════════ */
+
+const i_cellsA = document.getElementById('i_cellsA').children;
+const i_cellsB = document.getElementById('i_cellsB').children;
+let i_lostCounter = 0;
+
+function i_setBitsByte(ctl, byteValue) {
+  /* Display 10 bits: start(0) + LSB-first 8 data bits + stop(1) */
+  const bits = [0];
+  for (let i = 0; i < 8; i++) bits.push((byteValue >> i) & 1);
+  bits.push(1);
+  const bs = document.getElementById('i_bitStream').children;
+  for (let i = 0; i < 10; i++) bs[i].className = 'bit ' + (bits[i] ? 'high' : 'low');
+}
+function i_clearBits() {
+  const bs = document.getElementById('i_bitStream').children;
+  for (let b of bs) b.className = 'bit';
+}
+async function i_flashReg(elId, valEl, value, ctl) {
+  const el = document.getElementById(elId);
+  if (valEl !== null && value !== undefined) document.getElementById(valEl).textContent = value;
+  el.classList.add('flash');
+  await ctl.delay(200);
+  el.classList.remove('flash');
+}
+function i_addLost(n) {
+  i_lostCounter += n;
+  document.getElementById('i_lossCount').textContent = i_lostCounter + ' lost';
+}
+function i_resetLost() {
+  i_lostCounter = 0;
+  document.getElementById('i_lossCount').textContent = '0 lost';
+}
+async function i_floatLostByte(byteValue, ctl) {
+  /* Visualize a byte falling off into "lost" territory */
+  const stage = document.getElementById('i_stage');
+  const lb = document.createElement('div');
+  lb.className = 'lost-byte';
+  lb.textContent = '0x' + byteValue.toString(16).toUpperCase().padStart(2, '0');
+  lb.style.left = '170px';
+  lb.style.top = '170px';
+  stage.appendChild(lb);
+  await ctl.delay(40);
+  lb.style.left = '170px';
+  lb.style.top = '450px';
+  lb.style.opacity = '0';
+  await ctl.delay(800);
+  lb.remove();
+}
+
+const issueSteps = [
+  /* 0 */ async (ctl) => {
+    ctl.setStep(1, 'Setup: just finished the previous frame',
+      'The previous frame is done. Buffer A is being processed by the CPU. DMA was just stopped — and the original code is about to send ACK BEFORE re-arming DMA on Buffer B.');
+    /* mark buffer A as processed */
+    for (let i = 0; i < 17; i++) i_cellsA[i].className = 'cell processed';
+    document.getElementById('i_bufA').classList.add('processing');
+    document.getElementById('i_cpuTask').textContent = 'About to send ACK to host…';
+    document.getElementById('i_cpuTask').className = 'cpu-task busy';
+    ctl.log('Previous frame validated. CPU preparing ACK.', 'cpu');
+    await ctl.delay(1100);
+  },
+  /* 1 */ async (ctl) => {
+    ctl.setStep(2, 'CPU sends ACK on USART2 (~350 µs)',
+      'The CPU calls HAL_UART_Transmit to send the 4-byte ACK. This blocks for ~350 µs. Right after, it logs "Transitioning to DATA state…" via USART3 (another ~2-3 ms).');
+    document.getElementById('i_cpuTask').textContent = 'Transmitting ACK… (blocking)';
+    ctl.log('etx_send_response(ACK) — blocking 4-byte transmit', 'cpu');
+    await ctl.delay(900);
+    document.getElementById('i_cpuTask').textContent = 'Logging "Transitioning to DATA"';
+    ctl.log('LOG_INFO("Transitioning to DATA state…")', 'cpu');
+    await ctl.delay(1100);
+  },
+  /* 2 */ async (ctl) => {
+    ctl.setStep(3, 'Host received ACK — starts the next 10 KB frame',
+      'The host sees ACK in 1–5 ms over USB and immediately writes the next data frame to the wire. Bits start arriving at the MCU pin… but DMA is still NOT armed.');
+    i_setBitsByte(ctl, 0xAA);
+    ctl.log('First byte of next frame (0xAA) arriving on wire', 'warn');
+    await ctl.delay(600);
+  },
+  /* 3 */ async (ctl) => {
+    ctl.setStep(4, 'Byte 1 lands in RDR — RXNE is set',
+      'The USART captures the byte into RDR. Normally DMA would whisk it away in ~1 µs — but DMA is offline. The byte just sits there. RXNE flag stays high.');
+    await i_flashReg('i_rdr', 'i_rdrVal', '0xAA', ctl);
+    document.getElementById('i_rxneVal').textContent = '1';
+    document.getElementById('i_rxneFlag').classList.add('flag-on');
+    ctl.log('RDR=0xAA, RXNE=1 — but no one is reading it', 'warn');
+    await ctl.delay(900);
+  },
+  /* 4 */ async (ctl) => {
+    ctl.setStep(5, 'Byte 2 arrives — RDR is full → ORE!',
+      'Just ~87 µs later, the second byte arrives. There is nowhere to put it: RDR still holds byte 1. The USART silicon latches the ORE (overrun) flag and STOPS accepting bytes.');
+    i_setBitsByte(ctl, 0x03);
+    await ctl.delay(500);
+    document.getElementById('i_oreVal').textContent = '1';
+    document.getElementById('i_oreFlag').classList.add('flag-on');
+    document.getElementById('i_rdr').classList.add('locked');
+    await i_floatLostByte(0x03, ctl);
+    i_addLost(1);
+    ctl.log('🚨 ORE latched! USART halted.', 'irq');
+    await ctl.delay(800);
+  },
+  /* 5 */ async (ctl) => {
+    ctl.setStep(6, 'More bytes arrive — all dropped on the floor',
+      'The host keeps streaming the 10 KB frame, oblivious. Every byte that hits the silenced USART vanishes. We are losing real firmware data.');
+    /* visualize multiple bytes being lost */
+    const lostBytes = [0x00, 0x28, 0x00, 0x00, 0x08, 0x24, 0x12, 0x34, 0x56, 0x78, 0x9A];
+    for (let b of lostBytes) {
+      i_setBitsByte(ctl, b);
+      await ctl.delay(150);
+      i_floatLostByte(b, ctl);
+      i_addLost(1);
+      await ctl.delay(80);
+    }
+    i_clearBits();
+    ctl.log(`${i_lostCounter} bytes lost so far — USART still locked`, 'err');
+    await ctl.delay(800);
+  },
+  /* 6 */ async (ctl) => {
+    ctl.setStep(7, 'CPU finally gets around to re-arming DMA',
+      'After the slow log print, the CPU calls restart_dma_receive(). HAL_UARTEx_ReceiveToIdle_DMA tries to start — but the USART is in a weird state and the call returns HAL_BUSY/HAL_ERROR.');
+    document.getElementById('i_cpuTask').textContent = 'Calling restart_dma_receive()…';
+    ctl.log('CPU calls HAL_UARTEx_ReceiveToIdle_DMA(…)', 'cpu');
+    await ctl.delay(700);
+    ctl.log('HAL returned HAL_ERROR (RxState=BUSY_RX, ReceptionType clobbered)', 'err');
+    await ctl.delay(800);
+  },
+  /* 7 */ async (ctl) => {
+    ctl.setStep(8, 'Recovery code force-resets DMA',
+      'The fix code we added detects this and calls HAL_UART_AbortReceive, force-clears state, and retries. DMA is now armed on Buffer B — but bytes have already been lost.');
+    ctl.log('HAL_UART_AbortReceive() → force RxState=READY', 'cpu');
+    await ctl.delay(500);
+    ctl.log('Retry HAL_UARTEx_ReceiveToIdle_DMA(…) → OK', 'dma');
+    document.getElementById('i_dmaIcon').classList.remove('stopped');
+    document.getElementById('i_dmaIcon').classList.add('busy');
+    document.getElementById('i_dmaStatus').textContent = 'ARMED';
+    document.getElementById('i_dmaStatus').style.color = 'var(--accent-good)';
+    document.getElementById('i_ndtrVal').textContent = '10249';
+    document.getElementById('i_oreVal').textContent = '0';
+    document.getElementById('i_oreFlag').classList.remove('flag-on');
+    document.getElementById('i_rdrVal').textContent = '—';
+    document.getElementById('i_rxneVal').textContent = '0';
+    document.getElementById('i_rxneFlag').classList.remove('flag-on');
+    document.getElementById('i_rdr').classList.remove('locked');
+    document.getElementById('i_bufB').classList.add('active');
+    await ctl.delay(800);
+  },
+  /* 8 */ async (ctl) => {
+    ctl.setStep(9, 'DMA receives the rest — but the frame is now corrupted',
+      'DMA captures whatever bytes arrive next. But the frame is missing its first ~5500 bytes. SOF=0xDE (mid-payload garbage) instead of 0xAA. CRC fails.');
+    /* fill buffer B with "garbage" */
+    document.getElementById('i_dmaIcon').classList.add('busy');
+    for (let i = 0; i < 20; i++) {
+      i_cellsB[i].className = 'cell lost';
+      await ctl.delay(40);
+    }
+    document.getElementById('i_dmaIcon').classList.remove('busy');
+    ctl.log('Frame validation: SOF=0xDE, CRC mismatch → NACK', 'err');
+    await ctl.delay(800);
+  },
+  /* 9 */ async (ctl) => {
+    ctl.setStep(10, 'Host retries — works on second attempt',
+      'The bootloader sends NACK. The host re-sends the same 10 KB frame. This time DMA is already armed (because we re-armed during the failed attempt) and the frame goes through cleanly.');
+    ctl.log('Host: NACK received, retrying… (1/3)', 'warn');
+    await ctl.delay(700);
+    ctl.log('Retry attempt: frame received cleanly ✓', 'dma');
+    await ctl.delay(800);
+  },
+  /* 10 */ async (ctl) => {
+    ctl.setStep(11, 'The fix: swap the order',
+      'Move restart_dma_receive() to BEFORE etx_send_response(ACK). Now DMA is always armed by the time the host responds. No race, no overrun, no lost bytes, no NACK retry.');
+    ctl.log('Fix applied: restart_dma_receive() → etx_send_response(ACK)', 'cpu');
+    await ctl.delay(700);
+    ctl.log('First-frame failure rate: 100% → 0%', 'dma');
+    await ctl.delay(1200);
+  },
+];
+
+const issueCtl = makeController('i_', issueSteps, {
+  title: 'You have seen the bug — and the fix',
+  desc: 'A classic receiver-not-ready race. The lesson: arm the receiver BEFORE you authorize the sender. This single rule eliminates an entire class of UART bugs.'
+});
+issueCtl.resetScene = function() {
+  issueCtl.clearLog();
+  i_clearBits();
+  i_resetLost();
+  document.getElementById('i_rdrVal').textContent = '—';
+  document.getElementById('i_rxneVal').textContent = '0';
+  document.getElementById('i_rxneFlag').classList.remove('flag-on');
+  document.getElementById('i_oreVal').textContent = '0';
+  document.getElementById('i_oreFlag').classList.remove('flag-on');
+  document.getElementById('i_rdr').classList.remove('locked');
+  document.getElementById('i_dmaIcon').classList.remove('busy');
+  document.getElementById('i_dmaIcon').classList.add('stopped');
+  document.getElementById('i_dmaStatus').textContent = 'NOT ARMED';
+  document.getElementById('i_dmaStatus').style.color = 'var(--ink-dim)';
+  document.getElementById('i_ndtrVal').textContent = '—';
+  document.getElementById('i_irqArrow').classList.remove('show');
+  document.getElementById('i_cpuTask').textContent = 'Sending ACK to host…';
+  document.getElementById('i_cpuTask').className = 'cpu-task busy';
+  for (let c of i_cellsA) c.className = 'cell';
+  for (let c of i_cellsB) c.className = 'cell';
+  document.getElementById('i_bufA').className = 'buffer';
+  document.getElementById('i_bufB').className = 'buffer';
+  document.querySelectorAll('.lost-byte').forEach(e => e.remove());
+  issueCtl.setStep(0, 'Press Play to see the bug',
+    'Watch what happens when the CPU sends the ACK before re-arming DMA. Bytes get lost on the floor.');
+};
+
+/* Initialize both scenes */
+mainCtl.resetScene();
+issueCtl.resetScene();
+</script>
+
+</body>
+</html>
