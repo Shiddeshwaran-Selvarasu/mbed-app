@@ -69,3 +69,6 @@ testing
 
 # claude
 .remember
+
+# graphify
+graphify-out/cache

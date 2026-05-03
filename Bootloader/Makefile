@@ -31,15 +31,20 @@ OBJS = $(addprefix $(OBJ_DIR)/, $(notdir $(C_SRCS:.c=.o))) \
 # =====================
 INCLUDES = -ICore/Inc \
 		   -ICommon/Inc \
+		   -IUSB_Device/App \
+		   -IUSB_Device/Target \
 		   -IDrivers/STM32H7xx_HAL_Driver/Inc \
 		   -IDrivers/CMSIS/Include \
 		   -IDrivers/CMSIS/Device/ST \
-		   -IDrivers/CMSIS/Device/ST/STM32H7xx/Include
+		   -IDrivers/CMSIS/Device/ST/STM32H7xx/Include \
+		   -IMiddlewares/ST/STM32_USB_Device_Library/Core/Inc \
+		   -IMiddlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc
 
 # =====================
 # Compiler Flags
 # =====================
 CFLAGS   = -mcpu=cortex-m7 -mthumb -O2 -g -Wall -ffunction-sections -fdata-sections $(INCLUDES) -DUSE_HAL_DRIVER -DSTM32H755xx -DCORE_CM7
+CFLAGS  += -DHAL_PCD_MODULE_ENABLED
 
 # =====================
 # Output Files
@@ -75,7 +80,15 @@ all: $(BIN)
 # =====================
 # vpath for source files
 # =====================
-vpath %.c Core/Src Common/Src Drivers/STM32H7xx_HAL_Driver/Src Drivers/CMSIS/Device/ST/STM32H7xx/Source Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates
+vpath %.c Core/Src \
+		Common/Src \
+		USB_Device/App \
+		USB_Device/Target \
+		Drivers/STM32H7xx_HAL_Driver/Src \
+		Drivers/CMSIS/Device/ST/STM32H7xx/Source \
+		Drivers/CMSIS/Device/ST/STM32H7xx/Source/Templates \
+		Middlewares/ST/STM32_USB_Device_Library/Core/Src \
+		Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src
 vpath %.s Core/Startup
 
 # =====================

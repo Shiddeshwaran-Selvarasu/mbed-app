@@ -27,10 +27,14 @@
       "includePath": [
         "${workspaceFolder}/Bootloader/Core/Inc",
         "${workspaceFolder}/Bootloader/Common/Inc",
+        "${workspaceFolder}/Bootloader/USB_Device/App",
+        "${workspaceFolder}/Bootloader/USB_Device/Target",
         "${workspaceFolder}/Bootloader/Drivers/STM32H7xx_HAL_Driver/Inc",
         "${workspaceFolder}/Bootloader/Drivers/CMSIS/Include",
         "${workspaceFolder}/Bootloader/Drivers/CMSIS/Device/ST",
         "${workspaceFolder}/Bootloader/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+        "${workspaceFolder}/Bootloader/Middlewares/ST/STM32_USB_Device_Library/Core/Inc",
+        "${workspaceFolder}/Bootloader/Middlewares/ST/STM32_USB_Device_Library/Class/**/Inc",
         "${workspaceFolder}/Bootloader/**"
       ],
       "defines": [

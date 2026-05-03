@@ -1,6 +1,10 @@
 #include "main.h"
+#include "usb_device.h"
+#include "usbd_core.h"
 #include <stdio.h>
 #include <string.h>
+
+extern USBD_HandleTypeDef hUsbDeviceFS;
 
 #include "logger.h"
 #include "crc_helper.h"
@@ -43,14 +47,16 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_CRC_Init(void);
+static void MX_DMA_Init(void);
+static void MX_IWDG_Init(void); // watchdog deinit is not possible, so continue to ping it in Application also
+static void MX_USB_CDC_Init(void);
 
 static void MX_GPIO_DeInit(void);
 static void MX_USART2_UART_DeInit(void);
 static void MX_USART3_UART_DeInit(void);
 static void MX_CRC_DeInit(void);
-static void MX_DMA_Init(void);
 static void MX_DMA_DeInit(void);
-static void MX_IWDG_Init(void);
+static void MX_USB_CDC_DeInit(void);
 
 static void goto_application( void );
 static bool get_application_crc(uint32_t *out_crc);
@@ -74,6 +80,7 @@ int main(void)
   MX_USART3_UART_Init();
   MX_CRC_Init();
   MX_IWDG_Init();
+  MX_USB_CDC_Init();
 
   LOG_INFO("%s\r\n", BL_VER_STRING);
 
@@ -200,8 +207,9 @@ static void goto_application( void )
 { 
   /* Brief delay to ensure UART transmission completes */
   HAL_Delay(UART_TRANSMIT_DELAY_MS);
-  
+
   /* Reset the peripherals */
+  MX_USB_CDC_DeInit();
   MX_USART2_UART_DeInit();
   MX_DMA_DeInit();
   MX_USART3_UART_DeInit();
@@ -340,13 +348,12 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef usb_clk = {0};
 
-  /** Supply configuration update enable
-  */
+  /* Supply configuration update enable */
   HAL_PWREx_ConfigSupply(PWR_DIRECT_SMPS_SUPPLY);
 
-  /** Configure the main internal regulator output voltage
-  */
+  /* Configure the main internal regulator output voltage */
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
@@ -354,8 +361,9 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSI48;
   RCC_OscInitStruct.HSIState = RCC_HSI_DIV1;
+  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
@@ -370,8 +378,12 @@ void SystemClock_Config(void)
 
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) Error_Handler();
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
+  /* Configure USB clock to use HSI48 */
+  usb_clk.PeriphClockSelection = RCC_PERIPHCLK_USB;
+  usb_clk.UsbClockSelection    = RCC_USBCLKSOURCE_HSI48;
+  if (HAL_RCCEx_PeriphCLKConfig(&usb_clk) != HAL_OK) Error_Handler();
+
+  /* Initializes the CPU, AHB and APB buses clocks */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
                               |RCC_CLOCKTYPE_D3PCLK1|RCC_CLOCKTYPE_D1PCLK1;
@@ -405,8 +417,9 @@ void SystemClock_DeInit(void)
   RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_SW) | RCC_CFGR_SW_HSI;
   /* Wait for the switch to complete */
   while((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_HSI) {};
-
-  /* Turn off the PLLs, HSE, and CSS */
+  
+  /* Turn off the PLLs, HSE, HSI48, and CSS */
+  RCC->CR &= ~RCC_CR_HSI48ON;
   RCC->CR &= ~(RCC_CR_PLL1ON | RCC_CR_PLL2ON | RCC_CR_PLL3ON);
   RCC->CR &= ~(RCC_CR_HSEON | RCC_CR_HSEON);
 }
@@ -616,6 +629,32 @@ static void MX_GPIO_DeInit(void)
 
   /* Deinitialize GPIO pin : LED2_Pin */
   HAL_GPIO_DeInit(LED2_GPIO_Port, LED2_Pin);
+}
+
+/**
+ * @brief USB CDC Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_USB_CDC_Init(void)
+{
+  /* H7 USB PHY requires the internal 3.3 V supply to be enabled before PCD
+   * init; without this the device is invisible to the host (no enumeration). */
+  HAL_PWREx_EnableUSBVoltageDetector();
+  MX_USB_DEVICE_Init();
+}
+
+/**
+ * @brief USB CDC Deinitialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_USB_CDC_DeInit(void)
+{
+  USBD_Stop(&hUsbDeviceFS);
+  USBD_DeInit(&hUsbDeviceFS);
+  __HAL_RCC_USB_OTG_FS_FORCE_RESET();
+  __HAL_RCC_USB_OTG_FS_RELEASE_RESET();
 }
 
 /*******************************************************************************

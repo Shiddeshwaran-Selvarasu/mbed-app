@@ -3,6 +3,7 @@
 #include "conf_helper.h"
 #include "crc_helper.h"
 #include "logger.h"
+#include "usbd_cdc_if.h"
 
 /* Retry configuration */
 #define MAX_NACK_RETRIES              3U      /* Maximum NACK retry attempts */
@@ -21,6 +22,7 @@ static volatile uint16_t rx_received_size = 0;
 
 /* Response Buffer */
 static uint8_t rsp_buffer[ETX_RSPF_PACKET_SIZE];
+static etx_transport_t active_transport = TRANSPORT_NONE;
 
 /* Download Status */
 static ETX_DL_STATE_ dl_state;
@@ -43,6 +45,7 @@ extern CRC_HandleTypeDef hcrc;
 /* Communication functions */
 static ETX_DL_FRAME_EX_ etx_send_response(ETX_DL_RSP_ rsp);
 static HAL_StatusTypeDef etx_tx_rsp(ETX_DL_RSPF_ *buffer);
+static void restart_receivers(void);
 static void restart_dma_receive(void);
 
 /* Flash operation functions */
@@ -80,8 +83,8 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
   rx_active = rx_buffer_a;
   rx_ready  = rx_buffer_b;
 
-  /* Kick off first DMA receive */
-  restart_dma_receive();
+  /* Kick off first receive */
+  restart_receivers();
 
   LOG_INFO("Waiting ETX APP download to start [State: IDLE]...\r\n");
 
@@ -91,11 +94,25 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
       dl_state = ETX_DL_STATE_FAILED;
 
     } else if (!is_data_transfer_complete) {
-      if (!rx_frame_ready) {
+      bool uart_rdy = rx_frame_ready;
+      bool usb_rdy  = USB_CDC_IsRxReady();
+
+      if (!uart_rdy && !usb_rdy) {
         HAL_IWDG_Refresh(&hiwdg);
         continue;
       }
-      rx_frame_ready = false;
+
+      if (active_transport == TRANSPORT_NONE) {
+        active_transport = usb_rdy ? TRANSPORT_USB : TRANSPORT_UART;
+      }
+
+      if (active_transport == TRANSPORT_USB) {
+        rx_ready         = USB_CDC_GetRxBuf();
+        rx_received_size = (uint16_t)USB_CDC_GetRxLen();
+        USB_CDC_ClearRxReady();
+      } else {
+        rx_frame_ready = false;
+      }
 
       /* Verify frame: SOF, bounds, CRC, EOF.
        * CRC covers bytes 0..(4+payload_len-1); CRC word follows at offset 4+payload_len. */
@@ -115,7 +132,7 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
       if (!frame_valid) {
         LOG_ERROR("Frame integrity check failed\r\n");
         etx_send_response(ETX_DL_RSP_NACK);
-        restart_dma_receive();
+        restart_receivers();
         continue;
       }
     }
@@ -130,10 +147,10 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
           LOG_INFO("Received DL start command. Transitioning to HEADER state...\r\n");
           dl_state = ETX_DL_STATE_HEADER;
           /* Re-arm DMA before ACK to avoid overrun race on the next frame. */
-          restart_dma_receive();
+          restart_receivers();
           etx_send_response(ETX_DL_RSP_ACK);
         } else {
-          restart_dma_receive();
+          restart_receivers();
           etx_send_response(ETX_DL_RSP_NACK);
         }
         break;
@@ -159,12 +176,12 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
           /* Re-arm DMA BEFORE sending ACK. The host starts streaming the 10KB
            * data frame as soon as it sees ACK; if DMA isn't armed yet the USART
            * overruns within microseconds and we lose the start of the frame. */
-          restart_dma_receive();
+          restart_receivers();
           etx_send_response(ETX_DL_RSP_ACK);
           LOG_INFO("Transitioning to DATA state...\r\n");
           dl_state = ETX_DL_STATE_DATA;
         } else {
-          restart_dma_receive();
+          restart_receivers();
           etx_send_response(ETX_DL_RSP_NACK);
         }
         break;
@@ -187,7 +204,7 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
           uint32_t flash_addr = APPLICATION_ADDRESS + (received_data_fragments * ETX_FRAME_DATA_MAX_SIZE);
           uint32_t flash_len  = received_frame->payload_len;
           uint8_t *flash_src  = rx_ready; /* save pointer before restart_dma may change rx_active */
-          restart_dma_receive();           /* DMA fills rx_active; we write flash from flash_src */
+          restart_receivers();           /* DMA fills rx_active; we write flash from flash_src */
 
           HAL_StatusTypeDef status = flash_application_data(
               flash_addr,
@@ -210,7 +227,7 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
           etx_send_response(ETX_DL_RSP_ACK);
         } else {
           etx_send_response(ETX_DL_RSP_NACK);
-          restart_dma_receive();
+          restart_receivers();
         }
         break;
 
@@ -224,7 +241,7 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
           etx_send_response(ETX_DL_RSP_ACK);
         } else {
           etx_send_response(ETX_DL_RSP_NACK);
-          restart_dma_receive();
+          restart_receivers();
         }
         break;
 
@@ -235,11 +252,13 @@ ETX_DL_EX_ etx_app_download_and_flash(ETX_CONFIG_ *config) {
           config->reboot_reason = ETX_APP_FAILED;
         }
         HAL_UART_DMAStop(&huart2);
+        active_transport = TRANSPORT_NONE;
         LOG_INFO("Download failed. Exiting...\r\n");
         return ETX_DL_EX_ERR;
 
       case ETX_DL_STATE_SUCCESS:
         HAL_UART_DMAStop(&huart2);
+        active_transport = TRANSPORT_NONE;
         config->is_app_bootable = false;
         config->is_app_flashed = true;
         config->reboot_reason = ETX_NORMAL_BOOT;
@@ -306,6 +325,11 @@ static HAL_StatusTypeDef etx_tx_rsp(ETX_DL_RSPF_ *buffer)
     return HAL_ERROR;
   }
 
+  if (active_transport == TRANSPORT_USB) {
+    CDC_Transmit_FS((uint8_t *)&buffer->sof, ETX_RSPF_PACKET_SIZE);
+    HAL_Delay(5); /* let USB flush the IN packet before arming next OUT */
+    return HAL_OK;
+  }
   return HAL_UART_Transmit(&huart2, (uint8_t *)&buffer->sof, ETX_RSPF_PACKET_SIZE, HAL_DL_UART_RX_TIMEOUT);
 }
 
@@ -325,20 +349,28 @@ static HAL_StatusTypeDef flash_erase_application(uint32_t data_size)
   return erase_flash(FLASH_BANK_2, FLASH_SECTOR_0, num_sectors);
 }
 
+static void restart_receivers(void)
+{
+  /* Clear USB ready flag — OUT endpoint stays armed from CDC_Init_FS */
+  USB_CDC_ClearRxReady();
+  restart_dma_receive();
+}
+
 static void restart_dma_receive(void)
 {
-  memset(rx_active, 0, ETX_FRAME_PACKET_MAX_SIZE);
-  HAL_StatusTypeDef st = HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_active, ETX_FRAME_PACKET_MAX_SIZE);
-  if (st != HAL_OK) {
-    /* HAL refused the re-arm (RxState not READY). Force-reset and retry once. */
-    HAL_UART_AbortReceive(&huart2);
-    huart2.RxState = HAL_UART_STATE_READY;
-    huart2.ReceptionType = HAL_UART_RECEPTION_STANDARD;
-    st = HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_active, ETX_FRAME_PACKET_MAX_SIZE);
+  if (active_transport != TRANSPORT_USB) {
+    memset(rx_active, 0, ETX_FRAME_PACKET_MAX_SIZE);
+    HAL_StatusTypeDef st = HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_active, ETX_FRAME_PACKET_MAX_SIZE);
     if (st != HAL_OK) {
-      LOG_ERROR("DMA receive re-arm failed (status=%d)\r\n", (int)st);
+      HAL_UART_AbortReceive(&huart2);
+      huart2.RxState = HAL_UART_STATE_READY;
+      huart2.ReceptionType = HAL_UART_RECEPTION_STANDARD;
+      st = HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_active, ETX_FRAME_PACKET_MAX_SIZE);
+      if (st != HAL_OK) {
+        LOG_ERROR("DMA receive re-arm failed (status=%d)\r\n", (int)st);
+      }
     }
+    __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
+    __HAL_UART_ENABLE_IT(&huart2, UART_IT_IDLE);
   }
-  __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
-  __HAL_UART_ENABLE_IT(&huart2, UART_IT_IDLE);
 }

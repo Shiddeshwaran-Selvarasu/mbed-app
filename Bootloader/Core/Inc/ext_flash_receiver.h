@@ -17,6 +17,9 @@ extern "C" {
 #define ETX_FRAME_PACKET_MAX_SIZE sizeof(ETX_DL_FRAME_) // Maximum packet size
 #define ETX_RSPF_PACKET_SIZE sizeof(ETX_DL_RSPF_) // Maximum packet size
 
+/* Active transport — locked to whichever interface sends the first frame */
+typedef enum { TRANSPORT_NONE, TRANSPORT_UART, TRANSPORT_USB } etx_transport_t;
+
 /*
  * ETX DL exit codes
  */
